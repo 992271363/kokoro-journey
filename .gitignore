@@ -420,3 +420,7 @@ FodyWeavers.xsd
 # 忽略虚拟环境文件夹
 .venv/
 venv/
+
+#忽略我的学习资料
+study/
+*study*
