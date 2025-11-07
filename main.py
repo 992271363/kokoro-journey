@@ -4,6 +4,7 @@ from Ui_PidSelect import Ui_KokoroJourney
 from PySide6.QtCore import Qt
 from Ui_ProcListDialog import Ui_ProcList
 import psutil
+import os
 
 class Mywindow(QMainWindow,Ui_KokoroJourney): #主窗口
     def __init__(self):
@@ -44,6 +45,7 @@ class DialogWindow(QDialog,Ui_ProcList):
 def GetProcessList(): #进程获取
     attrs = ['pid', 'name', 'exe']
     process_data = []
+    path_separator = os.sep
     for proc in psutil.process_iter(attrs=attrs):
         try:
             proc_info = {
@@ -51,6 +53,12 @@ def GetProcessList(): #进程获取
                 'name': proc.info['name'],
                 'exe': proc.info['exe'] or 'N/A'
             }
+            if not proc_info['exe']:
+                continue
+            if path_separator not in proc_info['exe']:
+                continue
+            if proc_info['pid'] in [0, 4]:
+                continue
             process_data.append(proc_info)
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
