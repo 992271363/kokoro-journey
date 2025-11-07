@@ -1,2 +1,2 @@
 # kokoro-journey
-time tracker to log every heartfelt gaming journey.
+第一次写程序，摸索学习中，目标是写出自己用着可以满意的计时器!
