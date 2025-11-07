@@ -424,3 +424,4 @@ venv/
 #忽略我的学习资料
 study/
 *study*
+test*.py
