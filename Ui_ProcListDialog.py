@@ -34,6 +34,7 @@ class Ui_ProcList(object):
         __qtablewidgetitem1 = QTableWidgetItem()
         self.procTable.setHorizontalHeaderItem(1, __qtablewidgetitem1)
         __qtablewidgetitem2 = QTableWidgetItem()
+        __qtablewidgetitem2.setTextAlignment(Qt.AlignLeading|Qt.AlignVCenter);
         self.procTable.setHorizontalHeaderItem(2, __qtablewidgetitem2)
         self.procTable.setObjectName(u"procTable")
 

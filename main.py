@@ -1,31 +1,33 @@
-from PySide6.QtWidgets import QApplication, QMainWindow, QDialog, QTableWidgetItem, QHeaderView
+from PySide6.QtWidgets import (QApplication, QMainWindow, QDialog, QTableWidgetItem, QHeaderView,
+                               QAbstractItemView)
 from Ui_PidSelect import Ui_KokoroJourney
 from Ui_ProcListDialog import Ui_ProcList
 import psutil
 
-class Mywindow(QMainWindow,Ui_KokoroJourney):
+class Mywindow(QMainWindow,Ui_KokoroJourney): #主窗口
     def __init__(self):
-        super().__init__()
+        super().__init__()  
         self.setupUi(self)
         self.pushButton_procs.clicked.connect(self.open_process_dialog)
-        
+
     def open_process_dialog(self):
         dialog = DialogWindow(self) 
         result = dialog.exec()
 
 class DialogWindow(QDialog,Ui_ProcList):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None): #进程选择窗口
         super().__init__(parent)
         self.setupUi(self)
         header = self.procTable.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.procTable.setSelectionBehavior(QAbstractItemView.SelectRows)  # 行选择
+        self.procTable.setSelectionMode(QAbstractItemView.SingleSelection)  # 选择单位数量
+        self.procTable.setEditTriggers(QAbstractItemView.NoEditTriggers)  # 不可编辑
         self.pushButton_reject.clicked.connect(self.reject)
         self.populate_process_list()
-        self.pushButton_reject.clicked.connect(self.reject)
-
-    def populate_process_list(self):
+    def populate_process_list(self): #进程列表填入
         processes = GetProcessList()
         self.procTable.setRowCount(len(processes))
         for row, proc_info in enumerate(processes):
@@ -37,7 +39,7 @@ class DialogWindow(QDialog,Ui_ProcList):
             self.procTable.setItem(row, 1, name_item)
             self.procTable.setItem(row, 2, path_item)
 
-def GetProcessList():
+def GetProcessList(): #进程获取
     attrs = ['pid', 'name', 'exe']
     process_data = []
     for proc in psutil.process_iter(attrs=attrs):
