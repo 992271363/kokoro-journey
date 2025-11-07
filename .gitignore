@@ -426,3 +426,6 @@ study/
 *study*
 test*.py
 开发日志.md
+
+#忽视.ui样式文件
+*.ui
