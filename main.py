@@ -1,5 +1,6 @@
 import os
 import sys
+import sqlite3
 import psutil, datetime, time
 from PySide6.QtCore import Qt, QObject, Signal, QThread
 from PySide6.QtWidgets import (QApplication, QMainWindow, QDialog,QTableWidgetItem,
