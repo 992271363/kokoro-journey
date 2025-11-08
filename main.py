@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import (QApplication, QMainWindow, QDialog, QTableWidgetItem, QHeaderView,
-                               QAbstractItemView)
+from PySide6.QtWidgets import (QApplication, QMainWindow, QDialog,QTableWidgetItem,
+                               QHeaderView, QAbstractItemView)
 from Ui_PidSelect import Ui_KokoroJourney
 from PySide6.QtCore import Qt
 from Ui_ProcListDialog import Ui_ProcList
@@ -20,29 +20,55 @@ class DialogWindow(QDialog,Ui_ProcList):
     def __init__(self, parent=None): #进程选择窗口
         super().__init__(parent)
         self.setupUi(self)
+        self.selected_pid = None
+        self.selected_name = None
+        self.selected_path = None
         header = self.procTable.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.procTable.setSortingEnabled(True)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.procTable.setSortingEnabled(True)  # 启用排序
         self.procTable.setSelectionBehavior(QAbstractItemView.SelectRows)  # 行选择
         self.procTable.setSelectionMode(QAbstractItemView.SingleSelection)  # 选择单位数量
         self.procTable.setEditTriggers(QAbstractItemView.NoEditTriggers)  # 不可编辑
+        self.pushButton_accept.clicked.connect(self.get_proc_info_and_aceept)
         self.pushButton_reject.clicked.connect(self.reject)
         self.populate_process_list()
     def populate_process_list(self): #进程列表填入
-        processes = GetProcessList()
+        processes = get_process_list()
         self.procTable.setRowCount(len(processes))
         for row, proc_info in enumerate(processes):
             pid_item = QTableWidgetItem()
             pid_item.setData(Qt.ItemDataRole.DisplayRole, proc_info['pid'])
+            pid_item.setToolTip(str(proc_info['pid']))
             name_item = QTableWidgetItem(proc_info['name'])
+            name_item.setToolTip(proc_info['name'])
             path_item = QTableWidgetItem(proc_info['exe'])
+            path_item.setToolTip(proc_info['exe'])
+            
             self.procTable.setItem(row, 0, pid_item)
             self.procTable.setItem(row, 1, name_item)
             self.procTable.setItem(row, 2, path_item)
-
-def GetProcessList(): #进程获取
+    def get_proc_info_and_aceept(self): #获取进程信息并接受
+        selected_rows_indexes = self.procTable.selectionModel().selectedRows()
+        if not selected_rows_indexes:
+            print("没有选中的行。")
+            return None, None
+        first_selected_row_index = selected_rows_indexes[0]
+        row = first_selected_row_index.row()
+        pid = self.procTable.item(row, 0).text()
+        name = self.procTable.item(row, 1).text()
+        path = self.procTable.item(row, 2).text()
+        self.selected_pid = pid
+        self.selected_name = name
+        self.selected_path = path
+        print(f"对话框内部已存储 -> PID: {self.selected_pid},\
+                进程名: {self.selected_name}, \
+                路径: {self.selected_path}")
+        self.accept()
+    
+        
+def get_process_list(): #进程获取
     attrs = ['pid', 'name', 'exe']
     process_data = []
     path_separator = os.sep

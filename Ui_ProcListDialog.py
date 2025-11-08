@@ -16,8 +16,8 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QDialog, QHBoxLayout, QHeaderView,
-    QPushButton, QSizePolicy, QSpacerItem, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget)
+    QLabel, QPushButton, QSizePolicy, QSpacerItem,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 class Ui_ProcList(object):
     def setupUi(self, ProcList):
@@ -42,6 +42,11 @@ class Ui_ProcList(object):
 
         self.horizontalLayout = QHBoxLayout()
         self.horizontalLayout.setObjectName(u"horizontalLayout")
+        self.label = QLabel(ProcList)
+        self.label.setObjectName(u"label")
+
+        self.horizontalLayout.addWidget(self.label)
+
         self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         self.horizontalLayout.addItem(self.horizontalSpacer)
@@ -73,6 +78,7 @@ class Ui_ProcList(object):
         ___qtablewidgetitem1.setText(QCoreApplication.translate("ProcList", u"\u8fdb\u7a0b\u540d", None));
         ___qtablewidgetitem2 = self.procTable.horizontalHeaderItem(2)
         ___qtablewidgetitem2.setText(QCoreApplication.translate("ProcList", u"\u8fdb\u7a0b\u8def\u5f84", None));
+        self.label.setText(QCoreApplication.translate("ProcList", u"\u8fc7\u957f\u7684\u503c\u53ef\u4ee5\u60ac\u6d6e\u9f20\u6807\u663e\u793a", None))
         self.pushButton_accept.setText(QCoreApplication.translate("ProcList", u"\u786e\u8ba4", None))
         self.pushButton_reject.setText(QCoreApplication.translate("ProcList", u"\u53d6\u6d88", None))
     # retranslateUi
