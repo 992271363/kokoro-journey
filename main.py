@@ -1,10 +1,14 @@
+import os
+import sys
+import psutil, datetime, time
+from PySide6.QtCore import Qt, QObject, Signal, QThread
 from PySide6.QtWidgets import (QApplication, QMainWindow, QDialog,QTableWidgetItem,
                                QHeaderView, QAbstractItemView)
+
 from Ui_PidSelect import Ui_KokoroJourney
-from PySide6.QtCore import Qt
 from Ui_ProcListDialog import Ui_ProcList
-import psutil
-import os
+
+
 
 class Mywindow(QMainWindow,Ui_KokoroJourney): #主窗口
     def __init__(self):
@@ -13,6 +17,7 @@ class Mywindow(QMainWindow,Ui_KokoroJourney): #主窗口
         self.pushButton_procs.clicked.connect(self.open_process_dialog)
         self.proc_name_show.setText("尚未选择进程") 
         self.proc_path_show.setText("尚未选择进程") 
+        self.proc_start_time_show.setText("尚未选择进程")
     def open_process_dialog(self):  # 打开选择窗口并获取进程信息
         dialog = DialogWindow(self) 
         result = dialog.exec()
@@ -23,8 +28,28 @@ class Mywindow(QMainWindow,Ui_KokoroJourney): #主窗口
             # self.pid_show.setText(self.selected_pid)
             self.proc_name_show.setText(self.proc_name)
             self.proc_path_show.setText(self.proc_path)
+            create_time_obj = self.get_create_timestamp(self.proc_pid)
+
+            '''
+            self.create_time_str = create_time_obj.strftime("%Y年-%m月-%d日 %H:%M:%S")  
+            不中勒哥，不支持utf8，去掉年月日是可以跑的
+            '''
+            year = create_time_obj.year
+            month = create_time_obj.month
+            day = create_time_obj.day
+            time_str = create_time_obj.strftime("%H:%M:%S")
+            self.create_time_str = f"{year}年{month:02d}月{day:02d}日 {time_str}"
+            
+            self.proc_start_time_show.setText(self.create_time_str)
         else:
             print("用户取消了选择。") 
+    def get_create_timestamp(self,pid):
+        proc = psutil.Process(pid)
+        create_timestamp = proc.create_time()
+        create_datetime = datetime.datetime.fromtimestamp(create_timestamp)
+        return create_datetime
+
+
 class DialogWindow(QDialog,Ui_ProcList):
     def __init__(self, parent=None): #进程选择窗口
         super().__init__(parent)
@@ -49,6 +74,7 @@ class DialogWindow(QDialog,Ui_ProcList):
         for row, proc_info in enumerate(processes):
             pid_item = QTableWidgetItem()
             pid_item.setData(Qt.ItemDataRole.DisplayRole, proc_info['pid'])
+            pid_item.setData(Qt.ItemDataRole.UserRole, proc_info['pid'])
             pid_item.setToolTip(str(proc_info['pid']))
             name_item = QTableWidgetItem(proc_info['name'])
             name_item.setToolTip(proc_info['name'])
@@ -65,7 +91,7 @@ class DialogWindow(QDialog,Ui_ProcList):
             return None, None
         first_selected_row_index = selected_rows_indexes[0]
         row = first_selected_row_index.row()
-        pid = self.procTable.item(row, 0).text()
+        pid = self.procTable.item(row, 0).data(Qt.ItemDataRole.UserRole)
         name = self.procTable.item(row, 1).text()
         path = self.procTable.item(row, 2).text()
         self.proc_pid = pid
@@ -76,7 +102,7 @@ class DialogWindow(QDialog,Ui_ProcList):
                 路径: {self.proc_path}")
         self.accept()
     
-        
+
 def get_process_list(): #进程获取
     attrs = ['pid', 'name', 'exe']
     process_data = []
@@ -100,7 +126,7 @@ def get_process_list(): #进程获取
     return process_data
 
 if __name__=="__main__":
-    app=QApplication([])
+    app=QApplication(sys.argv)
     window=Mywindow()
     window.show()
-    app.exec()
+    sys.exit(app.exec())
