@@ -11,18 +11,27 @@ class Mywindow(QMainWindow,Ui_KokoroJourney): #主窗口
         super().__init__()  
         self.setupUi(self)
         self.pushButton_procs.clicked.connect(self.open_process_dialog)
-
-    def open_process_dialog(self):
+        self.proc_name_show.setText("尚未选择进程") 
+        self.proc_path_show.setText("尚未选择进程") 
+    def open_process_dialog(self):  # 打开选择窗口并获取进程信息
         dialog = DialogWindow(self) 
         result = dialog.exec()
-
+        if result == QDialog.Accepted:
+            self.proc_pid = dialog.proc_pid
+            self.proc_name = dialog.proc_name
+            self.proc_path = dialog.proc_path
+            # self.pid_show.setText(self.selected_pid)
+            self.proc_name_show.setText(self.proc_name)
+            self.proc_path_show.setText(self.proc_path)
+        else:
+            print("用户取消了选择。") 
 class DialogWindow(QDialog,Ui_ProcList):
     def __init__(self, parent=None): #进程选择窗口
         super().__init__(parent)
         self.setupUi(self)
-        self.selected_pid = None
-        self.selected_name = None
-        self.selected_path = None
+        self.proc_pid = None
+        self.proc_name = None
+        self.proc_path = None
         header = self.procTable.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Interactive)
@@ -59,12 +68,12 @@ class DialogWindow(QDialog,Ui_ProcList):
         pid = self.procTable.item(row, 0).text()
         name = self.procTable.item(row, 1).text()
         path = self.procTable.item(row, 2).text()
-        self.selected_pid = pid
-        self.selected_name = name
-        self.selected_path = path
-        print(f"对话框内部已存储 -> PID: {self.selected_pid},\
-                进程名: {self.selected_name}, \
-                路径: {self.selected_path}")
+        self.proc_pid = pid
+        self.proc_name = name
+        self.proc_path = path
+        print(f"对话框内部已存储 -> PID: {self.proc_pid},\
+                进程名: {self.proc_name}, \
+                路径: {self.proc_path}")
         self.accept()
     
         
