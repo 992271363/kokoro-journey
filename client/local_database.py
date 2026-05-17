@@ -44,3 +44,10 @@ def create_db_and_tables():
         except Exception:
             pass  # 列已存在则跳过
 
+
+def delete_database():
+    """删除本地数据库文件（用于数据库损坏时重置）。"""
+    if os.path.exists(db_path):
+        os.remove(db_path)
+        print(f"[Local DB] 已删除数据库文件: {db_path}")
+

@@ -52,4 +52,9 @@ def get_data_dir() -> str:
 
 
 def is_data_dir_configured() -> bool:
-    return _from_settings_json() is not None or _from_portable() is not None
+    d = _from_settings_json() or _from_portable()
+    if d is None:
+        return False
+    if not os.path.exists(os.path.join(d, "local_client.db")):
+        return False
+    return True

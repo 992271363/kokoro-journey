@@ -214,8 +214,7 @@ __marimo__/
 *text
 
 #database
-client/data/*
-!client/data/.gitkeep
+client/data/
 
 #bak
 _bak/

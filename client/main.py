@@ -2,11 +2,11 @@ import sys  # 提供命令行参数与退出状态码
 import os  # 提供路径拼接等系统相关功能
 import tempfile  # 获取系统临时目录，用于存放锁文件
 
-from PySide6.QtWidgets import QApplication, QDialog  # Qt 应用入口类
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # Qt 应用入口类
 from PySide6.QtCore import QLockFile  # Qt 提供的跨平台文件锁工具
 
 from main_window import Mywindow  # 自定义主窗口
-from local_database import create_db_and_tables  # 数据库初始化工具
+from local_database import create_db_and_tables, delete_database  # 数据库初始化工具
 from settings import Settings  # 配置读取工具
 from theme import apply_theme  # 主题应用工具
 import autostart  # 开机自启动相关工具
@@ -119,7 +119,23 @@ if __name__ == "__main__":
     # 第四步：初始化数据库
     # ========================================================
     print("正在初始化数据库...")
-    create_db_and_tables()
+    try:
+        create_db_and_tables()
+    except Exception as e:
+        print(f"[DB Error] 数据库初始化失败: {e}")
+        reply = QMessageBox.critical(
+            None,
+            "数据库损坏",
+            f"检测到本地数据库文件损坏：\n{e}\n\n是否重置？\n\n"
+            "选择「重置」将删除损坏的数据库并重建。\n"
+            "选择「退出」将关闭程序。",
+            QMessageBox.StandardButton.Reset | QMessageBox.StandardButton.Close,
+        )
+        if reply == QMessageBox.StandardButton.Reset:
+            delete_database()
+            create_db_and_tables()
+        else:
+            sys.exit(1)
     print("数据库初始化完成。")
 
     # ========================================================
