@@ -1,7 +1,7 @@
 import datetime
 from sqlalchemy.orm import Session
 from local_models import (WatchedApplication, AppUsageSummary,
-                            ProcessSession, FocusActivity)
+                            ProcessSession, FocusActivity, AppDailyUsage)
 from path_utils import normalize_exe_path
 
 
@@ -121,8 +121,8 @@ def record_process_session(
                 print(f"[Tracking Service]     - 焦点活动: '{title}' ({focus_seconds}s)")
 
     # 5. 更新总账 (AppUsageSummary)
-    summary.total_lifetime_seconds += total_lifetime
-    summary.total_focus_time_seconds += total_focus_time
+    summary.total_lifetime_seconds = (summary.total_lifetime_seconds or 0) + total_lifetime
+    summary.total_focus_time_seconds = (summary.total_focus_time_seconds or 0) + total_focus_time
     if not summary.first_seen_at:
         summary.first_seen_at = start_time
     summary.last_seen_start_at = start_time
@@ -130,7 +130,23 @@ def record_process_session(
 
     print(f"[Tracking Service] -> 正在更新总账: lifetime +{total_lifetime}s, focus +{total_focus_time}s")
 
-    # 6. 提交所有更改
+    # 6. 更新每日统计 (AppDailyUsage)
+    usage_date = start_time.date()
+    daily = db.query(AppDailyUsage).filter(
+        AppDailyUsage.application_id == watched_app.id,
+        AppDailyUsage.date == usage_date,
+    ).first()
+    if not daily:
+        daily = AppDailyUsage(
+            application_id=watched_app.id,
+            date=usage_date,
+        )
+        db.add(daily)
+    daily.lifetime_seconds = (daily.lifetime_seconds or 0) + total_lifetime
+    daily.focus_seconds = (daily.focus_seconds or 0) + total_focus_time
+    print(f"[Tracking Service] -> 更新每日统计: {usage_date} lifetime +{total_lifetime}s, focus +{total_focus_time}s")
+
+    # 7. 提交所有更改
     try:
         db.commit()
         print(f"[Tracking Service] 数据库更新成功！")

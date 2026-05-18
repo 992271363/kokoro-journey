@@ -26,6 +26,7 @@ from search_utils import make_search_keywords, matches_search_keywords
 
 from dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
 from login_dialog import LoginDialog
+from stats_dialog import StatsDialog
 from sync_service import get_and_prepare_sync_data, mark_activities_as_synced
 from client_api import send_data_to_api
 from services import retry_failed_sessions, get_failed_queue_count
@@ -159,6 +160,10 @@ class Mywindow(QMainWindow):
         self.search_edit.setProperty("search", True)
         toolbar.addWidget(self.search_edit)
 
+        self.btn_stats = QPushButton("统计")
+        self.btn_stats.setFixedHeight(32)
+        toolbar.addWidget(self.btn_stats)
+
         self.user_show = QLabel("未登录")
         self.user_show.setFixedHeight(32)
         self.user_show.setAlignment(Qt.AlignCenter)
@@ -237,6 +242,7 @@ class Mywindow(QMainWindow):
         self.settings_button.clicked.connect(self.open_settings_dialog)
         self.login_action.triggered.connect(self.open_login_dialog)
         self.logout_action.triggered.connect(self._logout)
+        self.btn_stats.clicked.connect(self.open_stats)
 
         # ---- 启动 ----
         self.statusBar().setSizeGripEnabled(False)
@@ -494,6 +500,9 @@ class Mywindow(QMainWindow):
 
     def open_settings_dialog(self):
         SettingsDialog(self).exec()
+
+    def open_stats(self):
+        StatsDialog(parent=self).exec()
 
     def run_immediate_sync(self):
         if not self.token:

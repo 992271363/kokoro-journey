@@ -9,6 +9,14 @@ def _program_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _settings_dir() -> str:
+    """settings.json 的固定位置（始终在 AppData，不随程序位置变化）。"""
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        local_appdata = os.path.expanduser("~\\AppData\\Local")
+    return os.path.join(local_appdata, "desktopActivitySystem")
+
+
 def _from_cmdline() -> str | None:
     for arg in sys.argv[1:]:
         if arg.startswith("--data-dir="):
@@ -23,7 +31,7 @@ def _from_portable() -> str | None:
 
 
 def _from_settings_json() -> str | None:
-    path = os.path.join(_program_dir(), "settings.json")
+    path = os.path.join(_settings_dir(), "settings.json")
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -37,10 +45,7 @@ def _from_settings_json() -> str | None:
 
 
 def _default_appdata() -> str:
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if not local_appdata:
-        local_appdata = os.path.expanduser("~\\AppData\\Local")
-    return os.path.join(local_appdata, "desktopActivitySystem", "data")
+    return os.path.join(_settings_dir(), "data")
 
 
 def get_data_dir() -> str:

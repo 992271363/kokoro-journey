@@ -99,6 +99,32 @@ QPushButton[danger="true"]:hover {
     background-color: #dc2626;
 }
 
+/* 统计对话框模式切换按钮 */
+QPushButton[stat_mode="true"] {
+    background-color: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-weight: 500;
+}
+
+QPushButton[stat_mode="true"]:hover {
+    background-color: #e2e8f0;
+    border-color: #94a3b8;
+}
+
+QPushButton[stat_mode="true"]:checked {
+    background-color: #3b82f6;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+QPushButton[stat_mode="true"]:checked:hover {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
 /* 监控暂停按钮（绿色 = 暂停中，蓝色 = 默认监控中） */
 QPushButton[paused="true"] {
     background-color: #16a34a;
@@ -202,6 +228,29 @@ QTableWidget::item:selected {
 }
 
 QTableWidget::item:hover {
+    background-color: #eff6ff;
+}
+
+/* ---- 列表 ---- */
+QListWidget {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 8px 10px;
+    color: #000000;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+QListWidget::item:selected {
+    background-color: #bfdbfe;
+    color: #000000;
+}
+
+QListWidget::item:hover {
     background-color: #eff6ff;
 }
 
@@ -477,6 +526,32 @@ QPushButton[danger="true"]:hover {
     background-color: #dc2626;
 }
 
+/* 统计对话框模式切换按钮 */
+QPushButton[stat_mode="true"] {
+    background-color: #334155;
+    color: #94a3b8;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-weight: 500;
+}
+
+QPushButton[stat_mode="true"]:hover {
+    background-color: #475569;
+    border-color: #64748b;
+}
+
+QPushButton[stat_mode="true"]:checked {
+    background-color: #3b82f6;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+QPushButton[stat_mode="true"]:checked:hover {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
 /* 监控暂停按钮（绿色 = 暂停中，蓝色 = 默认监控中） */
 QPushButton[paused="true"] {
     background-color: #16a34a;
@@ -581,6 +656,29 @@ QTableWidget::item:selected {
 }
 
 QTableWidget::item:hover {
+    background-color: #334155;
+}
+
+/* ---- 列表 ---- */
+QListWidget {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 8px 10px;
+    color: #f1f5f9;
+    border-bottom: 1px solid #334155;
+}
+
+QListWidget::item:selected {
+    background-color: #1e3a5f;
+    color: #f1f5f9;
+}
+
+QListWidget::item:hover {
     background-color: #334155;
 }
 

@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QFormLayout, QSpinBox, QGroupBox, QDialogButtonBox,
-    QComboBox, QRadioButton, QButtonGroup, QFileDialog, QMessageBox,
+    QRadioButton, QButtonGroup, QFileDialog, QMessageBox,
     QLineEdit
 )
 
@@ -12,16 +12,7 @@ from settings import Settings
 import autostart
 from theme import apply_theme
 from data_dir import get_data_dir
-
-
-class AlwaysDownComboBox(QComboBox):
-    def showPopup(self):
-        super().showPopup()
-        popup = self.findChild(QComboBox)
-        if popup is None and self.view() and self.view().window():
-            popup_geo = self.view().window().geometry()
-            new_y = self.mapToGlobal(self.rect().bottomLeft()).y()
-            self.view().window().move(popup_geo.x(), new_y)
+from widgets import AlwaysDownComboBox
 
 
 class CloseAskDialog(QDialog):

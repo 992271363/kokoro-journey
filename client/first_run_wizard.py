@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QMessageBox
 )
-from data_dir import _default_appdata
+from data_dir import _default_appdata, _program_dir
 from settings import Settings
 
 
@@ -88,7 +88,7 @@ class FirstRunWizard(QDialog):
             self.path_edit.setText(path)
 
     def _set_root_dir(self):
-        self._selected_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        self._selected_path = os.path.join(_program_dir(), "data")
         self.path_edit.setText(self._selected_path)
 
     def _set_default_dir(self):
