@@ -2,8 +2,10 @@ import sys  # 提供命令行参数与退出状态码
 import os  # 提供路径拼接等系统相关功能
 import tempfile  # 获取系统临时目录，用于存放锁文件
 
+os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # Qt 应用入口类
-from PySide6.QtCore import QLockFile  # Qt 提供的跨平台文件锁工具
+from PySide6.QtCore import QLockFile, Qt  # Qt 提供的跨平台文件锁工具
 
 from main_window import Mywindow  # 自定义主窗口
 from local_database import create_db_and_tables, delete_database  # 数据库初始化工具
@@ -102,6 +104,9 @@ if __name__ == "__main__":
     # ========================================================
     # 第二步：创建 Qt 应用实例（必须先有 QApplication 才能弹对话框）
     # ========================================================
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
 
     # ========================================================

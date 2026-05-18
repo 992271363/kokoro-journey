@@ -84,7 +84,7 @@ class Mywindow(QMainWindow):
         toolbar = QToolBar()
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
-        toolbar.setIconSize(QSize(18, 18))
+        toolbar.setIconSize(QSize(27, 27))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
         toolbar.setStyleSheet("""
             QToolBar {
@@ -95,29 +95,29 @@ class Mywindow(QMainWindow):
             }
 
             QToolBar QToolButton {
-                min-height: 32px;
-                max-height: 32px;
+                min-height: 48px;
+                max-height: 48px;
                 padding: 0 10px;
                 margin: 0;
             }
 
             QToolBar QPushButton {
-                min-height: 32px;
-                max-height: 32px;
+                min-height: 48px;
+                max-height: 48px;
                 padding: 0 12px;
                 margin: 0;
             }
 
             QToolBar QLineEdit {
-                min-height: 32px;
-                max-height: 32px;
+                min-height: 48px;
+                max-height: 48px;
                 padding: 0 10px;
                 margin: 0;
             }
 
             QToolBar QLabel {
-                min-height: 32px;
-                max-height: 32px;
+                min-height: 48px;
+                max-height: 48px;
                 padding: 0 8px;
                 margin: 0;
             }
@@ -131,21 +131,21 @@ class Mywindow(QMainWindow):
 
         self.btn_monitor_toggle = QPushButton("暂停监控")
         self.btn_monitor_toggle.setToolTip("暂停/恢复全局监控")
-        self.btn_monitor_toggle.setFixedHeight(32)
+        self.btn_monitor_toggle.setFixedHeight(48)
         toolbar.addWidget(self.btn_monitor_toggle)
 
         self.pushButton_procs = QPushButton("添加进程")
-        self.pushButton_procs.setFixedHeight(32)
+        self.pushButton_procs.setFixedHeight(48)
         toolbar.addWidget(self.pushButton_procs)
 
         self.btn_crosshair = PickButton("拾取窗口")
         self.btn_crosshair.setToolTip("按住后拖动到目标窗口上松开，自动添加监控")
         self.btn_crosshair.setProperty("crosshair", True)
-        self.btn_crosshair.setFixedHeight(32)
+        self.btn_crosshair.setFixedHeight(48)
 
         crosshair_path = os.path.join(base, "icons", "crosshair.svg")
         self.btn_crosshair.setIcon(_themed_icon(crosshair_path, "#16a34a"))
-        self.btn_crosshair.setIconSize(QSize(18, 18))
+        self.btn_crosshair.setIconSize(QSize(27, 27))
 
         toolbar.addWidget(self.btn_crosshair)
         toolbar.addSeparator()
@@ -153,21 +153,21 @@ class Mywindow(QMainWindow):
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索名称...")
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setMinimumWidth(220)
-        self.search_edit.setFixedHeight(32)
+        self.search_edit.setMinimumWidth(330)
+        self.search_edit.setFixedHeight(48)
         self.search_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.search_edit.setToolTip("按应用名称或路径搜索，支持多个关键词")
         self.search_edit.setProperty("search", True)
         toolbar.addWidget(self.search_edit)
 
         self.btn_stats = QPushButton("统计")
-        self.btn_stats.setFixedHeight(32)
+        self.btn_stats.setFixedHeight(48)
         toolbar.addWidget(self.btn_stats)
 
         self.user_show = QLabel("未登录")
-        self.user_show.setFixedHeight(32)
+        self.user_show.setFixedHeight(48)
         self.user_show.setAlignment(Qt.AlignCenter)
-        self.user_show.setStyleSheet("color: #64748b; font-size: 12px;")
+        self.user_show.setStyleSheet("color: #64748b; font-size: 18px;")
         toolbar.addWidget(self.user_show)
 
         self.login_action = toolbar.addAction("登录")
@@ -180,8 +180,8 @@ class Mywindow(QMainWindow):
         gear_path = os.path.join(base, "icons", "gear.svg")
         self.settings_button.setIcon(_themed_icon(gear_path, "#475569"))
         self.settings_button.setProperty("settings", True)
-        self.settings_button.setFixedSize(32, 32)
-        self.settings_button.setIconSize(QSize(18, 18))
+        self.settings_button.setFixedSize(48, 48)
+        self.settings_button.setIconSize(QSize(27, 27))
 
         toolbar.addWidget(self.settings_button)
 

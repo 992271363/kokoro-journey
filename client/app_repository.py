@@ -105,6 +105,8 @@ class AppRepository:
             app = db.query(WatchedApplication).filter_by(executable_path=exe_path).first()
             if not app:
                 return False
+            _ = app.summary
+            _ = app.daily_usages
             db.delete(app)
             db.commit()
             return True

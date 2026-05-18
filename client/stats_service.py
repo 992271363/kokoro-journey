@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Tuple, Dict
 from collections import defaultdict
+import os
 
 from local_database import SessionLocal
 from local_models import AppDailyUsage, WatchedApplication
@@ -222,7 +223,7 @@ def get_weekly_detail(week_key: str) -> List[AppPeriodStat]:
 
     return [
         AppPeriodStat(
-            app_name=name,
+            app_name=os.path.splitext(name)[0],
             focus_seconds=v["focus"],
             lifetime_seconds=v["lifetime"],
         )
@@ -261,7 +262,7 @@ def get_monthly_detail(month_key: str) -> List[AppPeriodStat]:
 
     return [
         AppPeriodStat(
-            app_name=name,
+            app_name=os.path.splitext(name)[0],
             focus_seconds=v["focus"],
             lifetime_seconds=v["lifetime"],
         )
@@ -290,7 +291,7 @@ def get_daily_detail(date_key: str) -> List[AppPeriodStat]:
 
     return [
         AppPeriodStat(
-            app_name=name,
+            app_name=os.path.splitext(name)[0],
             focus_seconds=focus,
             lifetime_seconds=lifetime,
         )
