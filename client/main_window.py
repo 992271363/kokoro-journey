@@ -72,7 +72,7 @@ class Mywindow(QMainWindow):
 
         # ---- UI 初始化 ----
         self.setWindowTitle("desktopActivitySystem")
-        self.resize(1100, 450)
+        self.resize(1100, 619)
 
         central = QWidget(self)
         self.setCentralWidget(central)
@@ -341,7 +341,9 @@ class Mywindow(QMainWindow):
     def _adjust_window_width(self, table_content_width: int):
         margins = self._table_container.layout().contentsMargins()
         extra = margins.left() + margins.right()
-        self.resize(table_content_width + extra, self.height())
+        new_width = table_content_width + extra
+        new_height = int(new_width * 9 / 16)
+        self.resize(new_width, new_height)
 
     def _refresh_monitor_list(self):
         self.monitor_controller.update_watch_list(AppRepository.get_watched_apps_info())
