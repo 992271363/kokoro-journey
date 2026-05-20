@@ -13,6 +13,7 @@ import autostart
 from theme import apply_theme
 from data_dir import get_data_dir
 from widgets import AlwaysDownComboBox
+from data_io import export_data, import_data, clear_all_data, clear_failed_queue
 
 
 class CloseAskDialog(QDialog):
@@ -174,10 +175,26 @@ class SettingsDialog(QDialog):
         path_layout.addWidget(self.btn_change_dir)
         data_form.addRow("存储位置:", path_layout)
 
-        self.btn_clear_data = QPushButton("清除本地数据")
-        self.btn_clear_data.setEnabled(False)
-        self.btn_clear_data.setToolTip("待实现")
-        data_form.addRow(self.btn_clear_data)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        self.btn_export = QPushButton("导出数据")
+        self.btn_export.clicked.connect(self._on_export)
+        btn_row.addWidget(self.btn_export)
+
+        self.btn_import = QPushButton("导入数据")
+        self.btn_import.clicked.connect(self._on_import)
+        btn_row.addWidget(self.btn_import)
+
+        self.btn_clear_data = QPushButton("清除所有数据")
+        self.btn_clear_data.clicked.connect(self._on_clear_all)
+        btn_row.addWidget(self.btn_clear_data)
+
+        self.btn_clear_failed = QPushButton("清除失败队列")
+        self.btn_clear_failed.clicked.connect(self._on_clear_failed)
+        btn_row.addWidget(self.btn_clear_failed)
+
+        data_form.addRow(btn_row)
 
         layout.addWidget(data_group)
 
@@ -240,11 +257,127 @@ class SettingsDialog(QDialog):
 
         Settings().set("dataDirectory", new_path)
         self.path_edit.setText(new_path)
-        QMessageBox.information(
+        reply = QMessageBox.question(
             self,
             "需要重启",
-            "数据存储位置已更改，请重启应用以使用新目录。",
+            "数据存储位置已更改，是否立即重启应用？",
+            QMessageBox.Yes | QMessageBox.No,
         )
+        if reply == QMessageBox.Yes:
+            self._restart_app()
+
+    def _on_export(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("导出数据")
+        dialog.setFixedSize(300, 180)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+
+        layout.addWidget(QLabel("选择导出格式："))
+
+        btn_db = QPushButton("数据库文件 (.db)")
+        btn_json = QPushButton("JSON 结构化 (.json)")
+        btn_zip = QPushButton("ZIP（两者）")
+
+        for btn in (btn_db, btn_json, btn_zip):
+            btn.setMinimumHeight(36)
+            layout.addWidget(btn)
+
+        def do_export(fmt):
+            dialog.accept()
+            if fmt == "db":
+                filepath, _ = QFileDialog.getSaveFileName(
+                    self, "导出数据库", "local_client.db", "数据库文件 (*.db)"
+                )
+            elif fmt == "json":
+                filepath, _ = QFileDialog.getSaveFileName(
+                    self, "导出 JSON", "database.json", "JSON 文件 (*.json)"
+                )
+            else:
+                filepath, _ = QFileDialog.getSaveFileName(
+                    self, "导出 ZIP", "backup.zip", "ZIP 文件 (*.zip)"
+                )
+            if not filepath:
+                return
+            ok, msg = export_data(filepath, fmt)
+            if ok:
+                QMessageBox.information(self, "导出成功", msg)
+            else:
+                QMessageBox.critical(self, "导出失败", msg)
+
+        btn_db.clicked.connect(lambda: do_export("db"))
+        btn_json.clicked.connect(lambda: do_export("json"))
+        btn_zip.clicked.connect(lambda: do_export("zip"))
+
+        dialog.exec()
+
+    def _on_import(self):
+        reply = QMessageBox.warning(
+            self,
+            "确认导入",
+            "导入将覆盖现有所有数据，是否继续？\n\n"
+            "操作前会自动备份当前数据。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "导入数据", "",
+            "支持格式 (*.db *.json *.zip);;数据库 (*.db);;JSON (*.json);;ZIP (*.zip)"
+        )
+        if not filepath:
+            return
+
+        ok, msg = import_data(filepath)
+        if ok:
+            QMessageBox.information(
+                self,
+                "导入成功",
+                f"{msg}\n\n应用将自动重启以加载新数据。",
+            )
+            self._restart_app()
+        else:
+            QMessageBox.critical(self, "导入失败", msg)
+
+    def _on_clear_all(self):
+        reply = QMessageBox.warning(
+            self,
+            "确认清除",
+            "确定要清除所有本地数据吗？\n\n"
+            "这将删除所有监控记录、统计和会话历史。\n"
+            "操作前会自动备份当前数据。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        ok, msg = clear_all_data()
+        if ok:
+            QMessageBox.information(
+                self,
+                "已清除",
+                f"{msg}\n\n应用将自动重启。",
+            )
+            self._restart_app()
+        else:
+            QMessageBox.critical(self, "清除失败", msg)
+
+    def _on_clear_failed(self):
+        ok, msg = clear_failed_queue()
+        if ok:
+            QMessageBox.information(self, "已清除", msg)
+        else:
+            QMessageBox.critical(self, "清除失败", msg)
+
+    def _restart_app(self):
+        import sys
+        import os
+        self.accept()
+        os.execl(sys.executable, sys.executable, *sys.argv)
 
     def _on_accept(self):
         close_value = self.combo_close_action.currentData()

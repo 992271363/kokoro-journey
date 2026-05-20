@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple
 from sqlalchemy.orm import joinedload
 
 from local_database import SessionLocal
-from local_models import WatchedApplication
+from local_models import WatchedApplication, AppUsageSummary, AppDailyUsage, ProcessSession, FocusActivity
 from tracking_service import add_or_get_watched_app
 from path_utils import normalize_exe_path
 
@@ -98,15 +98,24 @@ class AppRepository:
 
     @staticmethod
     def delete_app_completely(exe_path: str) -> bool:
-        """彻底删除应用及其所有历史数据（走 ORM cascade）。"""
+        """彻底删除应用及其所有历史数据。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
             app = db.query(WatchedApplication).filter_by(executable_path=exe_path).first()
             if not app:
                 return False
-            _ = app.summary
-            _ = app.daily_usages
+            # 手动按依赖顺序删除子表，不依赖 ORM cascade
+            db.query(AppDailyUsage).filter_by(application_id=app.id).delete()
+            summary = db.query(AppUsageSummary).filter_by(application_id=app.id).first()
+            if summary:
+                db.query(FocusActivity).filter(
+                    FocusActivity.session_id.in_(
+                        db.query(ProcessSession.id).filter_by(summary_id=summary.id)
+                    )
+                ).delete(synchronize_session=False)
+                db.query(ProcessSession).filter_by(summary_id=summary.id).delete()
+                db.query(AppUsageSummary).filter_by(id=summary.id).delete()
             db.delete(app)
             db.commit()
             return True
