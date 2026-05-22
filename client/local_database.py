@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker
-from local_models import Base
+from local_models import Base, AppGroup
 from data_dir import get_data_dir
 
 data_dir = get_data_dir()
@@ -43,6 +43,19 @@ def create_db_and_tables():
             conn.commit()
         except Exception:
             pass  # 列已存在则跳过
+
+    # 确保默认分组存在
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    try:
+        default_group = db.query(AppGroup).filter_by(name="默认").first()
+        if not default_group:
+            db.add(AppGroup(name="默认"))
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 def delete_database():

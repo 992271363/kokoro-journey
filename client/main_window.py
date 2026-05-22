@@ -10,7 +10,7 @@ from PySide6.QtGui import QAction, QIcon, QImage, QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QDialog, QPushButton, QLabel,
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
-    QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit
+    QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup
 )
 
 from app_repository import AppRepository
@@ -149,6 +149,18 @@ class Mywindow(QMainWindow):
 
         toolbar.addWidget(self.btn_crosshair)
         toolbar.addSeparator()
+
+        # ---- 分组筛选按钮 ----
+        self._current_group_id = None
+        self.group_buttons = QButtonGroup(self)
+        self.group_buttons.setExclusive(True)
+        self._group_btn_container = QWidget()
+        self._group_btn_layout = QHBoxLayout(self._group_btn_container)
+        self._group_btn_layout.setContentsMargins(0, 0, 0, 0)
+        self._group_btn_layout.setSpacing(4)
+        toolbar.addWidget(self._group_btn_container)
+        self._rebuild_group_buttons()
+        self.group_buttons.buttonClicked.connect(self._on_group_changed)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索名称...")
@@ -309,8 +321,62 @@ class Mywindow(QMainWindow):
         self._is_closing = True
         self.close()
 
+    def _rebuild_group_buttons(self):
+        """重建分组筛选按钮。"""
+        # 清除旧按钮
+        for btn in self.group_buttons.buttons():
+            self.group_buttons.removeButton(btn)
+            self._group_btn_layout.removeWidget(btn)
+            btn.deleteLater()
+
+        groups = AppRepository.get_all_groups()
+
+        # 「全部」按钮
+        btn_all = QPushButton("全部")
+        btn_all.setCheckable(True)
+        btn_all.setFixedHeight(32)
+        btn_all.setProperty("group_btn", True)
+        btn_all.setProperty("group_id", None)
+        self.group_buttons.addButton(btn_all)
+        self._group_btn_layout.addWidget(btn_all)
+        if self._current_group_id is None:
+            btn_all.setChecked(True)
+
+        # 各分组按钮
+        for gid, gname in groups:
+            btn = QPushButton(gname)
+            btn.setCheckable(True)
+            btn.setFixedHeight(32)
+            btn.setProperty("group_btn", True)
+            btn.setProperty("group_id", gid)
+            self.group_buttons.addButton(btn)
+            self._group_btn_layout.addWidget(btn)
+            if self._current_group_id == gid:
+                btn.setChecked(True)
+
+        # [+按钮] 管理分组
+        btn_manage = QPushButton("+")
+        btn_manage.setFixedHeight(32)
+        btn_manage.setFixedWidth(32)
+        btn_manage.setToolTip("管理分组")
+        btn_manage.setProperty("group_btn", True)
+        btn_manage.clicked.connect(self._open_group_dialog)
+        self._group_btn_layout.addWidget(btn_manage)
+
+    def _on_group_changed(self, btn):
+        """分组按钮点击，切换筛选。"""
+        gid = btn.property("group_id")
+        self._current_group_id = gid
+        self._refresh_table()
+
+    def _open_group_dialog(self):
+        from group_dialog import GroupDialog
+        GroupDialog(self).exec()
+        self._rebuild_group_buttons()
+        self._refresh_table()
+
     def _refresh_table(self):
-        apps = AppRepository.get_all_apps()
+        apps = AppRepository.get_all_apps(group_filter=self._current_group_id)
         self.table_manager.refresh(apps)
         self._apply_table_search()
 

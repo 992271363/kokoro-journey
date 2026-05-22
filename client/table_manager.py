@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 
 from typing import List
 from utils import format_seconds_to_text
-from app_repository import AppInfo
+from app_repository import AppInfo, AppRepository
 from settings import Settings
 
 _collator = QCollator()
@@ -200,6 +200,10 @@ class AppTableManager(QObject):
             name_item.setData(_LAUNCH_PATH_ROLE, app.launch_path or app.exe_path)
             name_item.setData(_IS_WATCHED_ROLE, app.is_watched)
             name_item.setData(_IS_PATH_EXIST_ROLE, app.is_path_exist)
+            # 显示颜色标记
+            if app.color_tags:
+                dots = " ".join(f'<span style="color:{c};">●</span>' for c in app.color_tags)
+                name_item.setText(f"{Path(app.exe_name).stem}  {dots}")
             self.table.setItem(row, 1, name_item)
 
             item_cur_focus = SortableTableWidgetItem("-")
@@ -393,6 +397,41 @@ class AppTableManager(QObject):
         launch_action = menu.addAction("启动此应用")
         menu.addSeparator()
         toggle_watch_action = menu.addAction("停止监视" if is_watched else "恢复监视")
+
+        # 分组子菜单
+        group_menu = menu.addMenu("分组")
+        manage_groups_action = group_menu.addAction("管理分组...")
+        group_menu.addSeparator()
+        all_groups = AppRepository.get_all_groups()
+        current_groups = [gid for gid, _ in AppRepository.get_app_groups(exe_path)]
+        group_actions = {}
+        for gid, gname in all_groups:
+            act = group_menu.addAction(gname)
+            act.setCheckable(True)
+            act.setChecked(gid in current_groups)
+            group_actions[act] = gid
+
+        # 颜色标记子菜单
+        color_menu = menu.addMenu("标记")
+        COLORS = [
+            ("#60a5fa", "蓝色"),
+            ("#34d399", "绿色"),
+            ("#f87171", "红色"),
+            ("#fb923c", "橙色"),
+            ("#a78bfa", "紫色"),
+            ("#facc15", "黄色"),
+        ]
+        current_colors = AppRepository.get_color_tags(exe_path)
+        color_actions = {}
+        for hex_val, label in COLORS:
+            act = color_menu.addAction(f"  {label}")
+            act.setCheckable(True)
+            act.setChecked(hex_val in current_colors)
+            color_actions[act] = hex_val
+        color_menu.addSeparator()
+        clear_colors_action = color_menu.addAction("清除所有标记")
+
+        menu.addSeparator()
         hard_delete_action = menu.addAction("彻底删除此应用...")
 
         action = menu.exec(self.table.mapToGlobal(pos))
@@ -404,9 +443,38 @@ class AppTableManager(QObject):
             self.launch_requested.emit(launch_path)
         elif action == toggle_watch_action:
             self.watch_toggled_requested.emit(exe_path, not is_watched)
+        elif action == manage_groups_action:
+            from group_dialog import GroupDialog
+            GroupDialog(self.table).exec()
+        elif action == clear_colors_action:
+            AppRepository.clear_color_tags(exe_path)
+            self._refresh_color_dots(row, exe_path)
+        elif action in group_actions:
+            gid = group_actions[action]
+            AppRepository.toggle_app_group(exe_path, gid)
+        elif action in color_actions:
+            color = color_actions[action]
+            if color in current_colors:
+                AppRepository.remove_color_tag(exe_path, color)
+            else:
+                AppRepository.add_color_tag(exe_path, color)
+            self._refresh_color_dots(row, exe_path)
         elif action == hard_delete_action:
             if self._confirm_hard_delete(exe_name):
                 self.hard_delete_requested.emit(exe_path, exe_name)
+
+    def _refresh_color_dots(self, row: int, exe_path: str):
+        """更新名称列的颜色圆点。"""
+        name_item = self.table.item(row, 1)
+        if not name_item:
+            return
+        base_name = Path(name_item.text()).stem if Path(name_item.text()).suffix else name_item.text()
+        tags = AppRepository.get_color_tags(exe_path)
+        if tags:
+            dots = " ".join(f'<span style="color:{c};">●</span>' for c in tags)
+            name_item.setText(f"{base_name}  {dots}")
+        else:
+            name_item.setText(base_name)
 
     def _confirm_hard_delete(self, exe_name: str) -> bool:
         first = QMessageBox.warning(

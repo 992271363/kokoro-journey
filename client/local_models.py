@@ -51,6 +51,18 @@ class WatchedApplication(Base):
         cascade="all, delete-orphan",
     )
 
+    groups = relationship(
+        "AppGroup",
+        secondary="app_group_associations",
+        back_populates="applications",
+    )
+
+    color_tags = relationship(
+        "AppColorTag",
+        back_populates="application",
+        cascade="all, delete-orphan",
+    )
+
     def __repr__(self):
         return (
             f"<WatchedApplication("
@@ -289,3 +301,53 @@ class FocusActivity(Base):
             f"duration={self.focus_duration_seconds}s"
             f")>"
         )
+
+
+class AppGroup(Base):
+    __tablename__ = "app_groups"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+
+    applications = relationship(
+        "WatchedApplication",
+        secondary="app_group_associations",
+        back_populates="groups",
+    )
+
+    def __repr__(self):
+        return f"<AppGroup(id={self.id}, name='{self.name}')>"
+
+
+class AppGroupAssociation(Base):
+    __tablename__ = "app_group_associations"
+
+    application_id = Column(
+        Integer,
+        ForeignKey("watched_applications.id"),
+        primary_key=True,
+    )
+    group_id = Column(
+        Integer,
+        ForeignKey("app_groups.id"),
+        primary_key=True,
+    )
+
+
+class AppColorTag(Base):
+    __tablename__ = "app_color_tags"
+
+    application_id = Column(
+        Integer,
+        ForeignKey("watched_applications.id"),
+        primary_key=True,
+    )
+    color = Column(String, nullable=False)
+
+    application = relationship(
+        "WatchedApplication",
+        back_populates="color_tags",
+    )
+
+    def __repr__(self):
+        return f"<AppColorTag(app_id={self.application_id}, color='{self.color}')>"

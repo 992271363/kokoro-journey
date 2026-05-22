@@ -125,6 +125,32 @@ QPushButton[stat_mode="true"]:checked:hover {
     border-color: #2563eb;
 }
 
+/* 分组筛选按钮 */
+QPushButton[group_btn="true"] {
+    background-color: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-weight: 500;
+}
+
+QPushButton[group_btn="true"]:hover {
+    background-color: #e2e8f0;
+    border-color: #94a3b8;
+}
+
+QPushButton[group_btn="true"]:checked {
+    background-color: #3b82f6;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+QPushButton[group_btn="true"]:checked:hover {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
 /* 监控暂停按钮（绿色 = 暂停中，蓝色 = 默认监控中） */
 QPushButton[paused="true"] {
     background-color: #16a34a;
@@ -548,6 +574,32 @@ QPushButton[stat_mode="true"]:checked {
 }
 
 QPushButton[stat_mode="true"]:checked:hover {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+
+/* 分组筛选按钮 */
+QPushButton[group_btn="true"] {
+    background-color: #334155;
+    color: #94a3b8;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-weight: 500;
+}
+
+QPushButton[group_btn="true"]:hover {
+    background-color: #475569;
+    border-color: #64748b;
+}
+
+QPushButton[group_btn="true"]:checked {
+    background-color: #3b82f6;
+    color: #ffffff;
+    border-color: #3b82f6;
+}
+
+QPushButton[group_btn="true"]:checked:hover {
     background-color: #2563eb;
     border-color: #2563eb;
 }

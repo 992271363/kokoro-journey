@@ -1,7 +1,7 @@
 import datetime
 from sqlalchemy.orm import Session
 from local_models import (WatchedApplication, AppUsageSummary,
-                            ProcessSession, FocusActivity, AppDailyUsage)
+                            ProcessSession, FocusActivity, AppDailyUsage, AppGroup)
 from path_utils import normalize_exe_path
 
 
@@ -49,6 +49,10 @@ def add_or_get_watched_app(db: Session, executable_path: str, executable_name: s
         application_id=new_watched_app.id,
     )
     db.add(summary)
+
+    default_group = db.query(AppGroup).filter_by(name="默认").first()
+    if default_group:
+        new_watched_app.groups.append(default_group)
 
     db.commit()
     db.refresh(new_watched_app)
