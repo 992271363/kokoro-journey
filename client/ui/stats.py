@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QStackedWidget,
     QHeaderView, QDialogButtonBox, QAbstractItemView, QSizePolicy,
-    QButtonGroup
+    QButtonGroup, QWidget
 )
 
 from ui.widgets import AlwaysDownComboBox
@@ -173,10 +173,19 @@ class StatsDialog(QDialog):
         self.bar_chart_view.setRenderHint(QPainter.Antialiasing)
         self.stack.addWidget(self.bar_chart_view)
 
-        # 3. 饼状图
-        self.pie_chart_view = QChartView()
-        self.pie_chart_view.setRenderHint(QPainter.Antialiasing)
-        self.stack.addWidget(self.pie_chart_view)
+        # 3. 双饼图（焦点 + 运行）
+        self._pie_container = QWidget()
+        pie_layout = QVBoxLayout(self._pie_container)
+        pie_layout.setContentsMargins(0, 0, 0, 0)
+        self._pie_focus_view = QChartView()
+        self._pie_focus_view.setRenderHint(QPainter.Antialiasing)
+        self._pie_focus_view.setStyleSheet("border: none; background: transparent;")
+        self._pie_lifetime_view = QChartView()
+        self._pie_lifetime_view.setRenderHint(QPainter.Antialiasing)
+        self._pie_lifetime_view.setStyleSheet("border: none; background: transparent;")
+        pie_layout.addWidget(self._pie_focus_view, 1)
+        pie_layout.addWidget(self._pie_lifetime_view, 1)
+        self.stack.addWidget(self._pie_container)
 
         right_layout.addWidget(self.stack, stretch=1)
         body.addLayout(right_layout, stretch=1)
@@ -318,7 +327,7 @@ class StatsDialog(QDialog):
 
         self._refresh_text_view(detail, total_focus, total_lifetime)
         self._refresh_bar_chart(detail)
-        self._refresh_pie_chart(detail, total_focus)
+        self._refresh_pie_charts(detail, total_focus, total_lifetime)
 
     def _refresh_text_view(self, detail: list[AppPeriodStat], total_focus: int, total_lifetime: int):
         self.table_widget.setRowCount(len(detail))
@@ -350,8 +359,8 @@ class StatsDialog(QDialog):
         set_lifetime = QBarSet("运行时长")
         categories = []
 
-        for app_stat in detail:
-            categories.append(app_stat.app_name)
+        for i, app_stat in enumerate(detail):
+            categories.append(f"{i+1}. {app_stat.app_name}")
             set_focus.append(app_stat.focus_seconds / 3600.0)
             set_lifetime.append(app_stat.lifetime_seconds / 3600.0)
 
@@ -374,36 +383,50 @@ class StatsDialog(QDialog):
 
         self.bar_chart_view.setChart(chart)
 
-    def _refresh_pie_chart(self, detail: list[AppPeriodStat], total_focus: int):
+    def _refresh_pie_charts(self, detail: list[AppPeriodStat],
+                             total_focus: int, total_lifetime: int):
+        self._build_pie(self._pie_focus_view, detail, total_focus, "focus")
+        self._build_pie(self._pie_lifetime_view, detail, total_lifetime, "lifetime")
+
+    def _build_pie(self, chart_view: QChartView, detail: list[AppPeriodStat],
+                   total: int, key: str):
+        title = "焦点时长占比" if key == "focus" else "运行时长占比"
         chart = QChart()
-        chart.setTitle("焦点时长占比")
+        chart.setTitle(title)
         chart.setAnimationOptions(QChart.SeriesAnimations)
 
-        if not detail or total_focus <= 0:
+        if not detail or total <= 0:
             chart.setTitle("暂无数据")
-            self.pie_chart_view.setChart(chart)
+            chart_view.setChart(chart)
             return
 
         series = QPieSeries()
         top_n = 12
-        sorted_detail = sorted(detail, key=lambda x: x.focus_seconds, reverse=True)
+        sorted_detail = sorted(
+            detail,
+            key=lambda x: x.focus_seconds if key == "focus" else x.lifetime_seconds,
+            reverse=True,
+        )
         shown = sorted_detail[:top_n]
-        other_focus = sum(d.focus_seconds for d in sorted_detail[top_n:])
+        other = sum(
+            d.focus_seconds if key == "focus" else d.lifetime_seconds
+            for d in sorted_detail[top_n:]
+        )
 
-        for app_stat in shown:
-            label = app_stat.app_name
-            value = app_stat.focus_seconds
+        for i, app_stat in enumerate(shown):
+            label = f"{i+1}. {app_stat.app_name}"
+            value = app_stat.focus_seconds if key == "focus" else app_stat.lifetime_seconds
             slice_ = series.append(label, value)
             slice_.setLabelVisible(True)
-            slice_.setLabel(f"{label}\n{value/3600:.1f}h ({value/total_focus*100:.1f}%)")
+            slice_.setLabel(f"{label}\n{value/3600:.1f}h ({value/total*100:.1f}%)")
 
-        if other_focus > 0:
-            slice_other = series.append("其他", other_focus)
+        if other > 0:
+            slice_other = series.append("其他", other)
             slice_other.setLabelVisible(True)
-            slice_other.setLabel(f"其他\n{other_focus/3600:.1f}h ({other_focus/total_focus*100:.1f}%)")
+            slice_other.setLabel(f"其他\n{other/3600:.1f}h ({other/total*100:.1f}%)")
 
         chart.addSeries(series)
         chart.legend().setVisible(True)
         chart.legend().setAlignment(Qt.AlignRight)
 
-        self.pie_chart_view.setChart(chart)
+        chart_view.setChart(chart)
