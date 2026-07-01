@@ -17,7 +17,7 @@ def get_dashboard_stats(
     current_user: models.User = Depends(auth.get_current_user)
 ):
     """获取仪表盘顶部的统计卡片数据"""
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     
     today_focus_seconds = db.query(func.sum(models.ServerProcessSession.total_focus_seconds))\
         .join(models.ServerAppUsageSummary)\

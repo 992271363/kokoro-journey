@@ -324,8 +324,8 @@ class StatsDialog(QDialog):
         self.table_widget.setRowCount(len(detail))
         for row, app_stat in enumerate(detail):
             ratio = 0.0
-            if total_lifetime > 0:
-                ratio = (app_stat.focus_seconds / total_lifetime) * 100
+            if total_focus > 0:
+                ratio = (app_stat.focus_seconds / total_focus) * 100
 
             self.table_widget.setItem(row, 0, QTableWidgetItem(app_stat.app_name))
             self.table_widget.setItem(row, 1, QTableWidgetItem(format_seconds_to_text(app_stat.focus_seconds)))

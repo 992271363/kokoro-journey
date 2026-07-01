@@ -1,10 +1,10 @@
-def format_seconds_to_text(seconds: int) -> str:  # 秒数转为可读时长文本
-    if seconds < 60:  # 不足一分钟直接返回秒
+def format_seconds_to_text(seconds: int) -> str:
+    if seconds < 60:
         return f"{seconds} 秒"
-    m, s = divmod(seconds, 60)  # 分出分钟和剩余秒
-    h, m = divmod(m, 60)  # 分出小时和剩余分钟
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
     if h > 0:
-        return f"{int(h)}小时{int(m):02d}分"
+        return f"{h}小时{m:02d}分{s:02d}秒"
     if m > 0:
-        return f"{int(m)}分钟"
-    return f"{int(s)}秒"
+        return f"{m}分{s:02d}秒"
+    return f"{s}秒"

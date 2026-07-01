@@ -90,8 +90,8 @@ def record_process_session(
         db.flush()
 
     # 2. 计算本次会话的总时长和总焦点时长
-    total_lifetime = int((end_time - start_time).total_seconds())
-    total_focus_time = int(sum(focus_details.values()))
+    total_lifetime = round((end_time - start_time).total_seconds())
+    total_focus_time = round(sum(focus_details.values()))
     if total_lifetime <= 1:
         print(f"[Tracking Service] 会话时长过短 ({total_lifetime}s)，已忽略。")
         return
@@ -134,21 +134,50 @@ def record_process_session(
 
     print(f"[Tracking Service] -> 正在更新总账: lifetime +{total_lifetime}s, focus +{total_focus_time}s")
 
-    # 6. 更新每日统计 (AppDailyUsage)
-    usage_date = start_time.date()
-    daily = db.query(AppDailyUsage).filter(
-        AppDailyUsage.application_id == watched_app.id,
-        AppDailyUsage.date == usage_date,
-    ).first()
-    if not daily:
-        daily = AppDailyUsage(
-            application_id=watched_app.id,
-            date=usage_date,
-        )
-        db.add(daily)
-    daily.lifetime_seconds = (daily.lifetime_seconds or 0) + total_lifetime
-    daily.focus_seconds = (daily.focus_seconds or 0) + total_focus_time
-    print(f"[Tracking Service] -> 更新每日统计: {usage_date} lifetime +{total_lifetime}s, focus +{total_focus_time}s")
+    # 6. 更新每日统计 (AppDailyUsage)，支持跨午夜分片
+    date_lifetime_map = {}
+    cur = start_time
+    while cur.date() < end_time.date():
+        next_midnight = cur.replace(hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)
+        chunk = (next_midnight - cur).total_seconds()
+        if chunk > 0:
+            date_lifetime_map[cur.date()] = date_lifetime_map.get(cur.date(), 0) + round(chunk)
+        cur = next_midnight
+    remaining = (end_time - cur).total_seconds()
+    if remaining > 0:
+        date_lifetime_map[cur.date()] = date_lifetime_map.get(cur.date(), 0) + round(remaining)
+
+    for usage_date, date_lifetime in date_lifetime_map.items():
+        date_focus = round(total_focus_time * (date_lifetime / total_lifetime)) if total_lifetime > 0 else 0
+        daily = db.query(AppDailyUsage).filter(
+            AppDailyUsage.application_id == watched_app.id,
+            AppDailyUsage.date == usage_date,
+        ).first()
+        if not daily:
+            daily = AppDailyUsage(
+                application_id=watched_app.id,
+                date=usage_date,
+            )
+            db.add(daily)
+        daily.lifetime_seconds = (daily.lifetime_seconds or 0) + date_lifetime
+        daily.focus_seconds = (daily.focus_seconds or 0) + date_focus
+        print(f"[Tracking Service] -> 更新每日统计: {usage_date} lifetime +{date_lifetime}s, focus +{date_focus}s")
+
+    if not date_lifetime_map:
+        usage_date = start_time.date()
+        daily = db.query(AppDailyUsage).filter(
+            AppDailyUsage.application_id == watched_app.id,
+            AppDailyUsage.date == usage_date,
+        ).first()
+        if not daily:
+            daily = AppDailyUsage(
+                application_id=watched_app.id,
+                date=usage_date,
+            )
+            db.add(daily)
+        daily.lifetime_seconds = (daily.lifetime_seconds or 0) + total_lifetime
+        daily.focus_seconds = (daily.focus_seconds or 0) + total_focus_time
+        print(f"[Tracking Service] -> 更新每日统计: {usage_date} lifetime +{total_lifetime}s, focus +{total_focus_time}s")
 
     # 7. 提交所有更改
     try:

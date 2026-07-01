@@ -268,3 +268,142 @@ def clear_failed_queue() -> tuple[bool, str]:
         return True, "失败队列为空"
     except Exception as e:
         return False, f"清除失败: {e}"
+
+
+def preview_import_json(filepath: str) -> dict:
+    """解析 JSON 文件并返回预览摘要（不写入数据库）。"""
+    if not os.path.exists(filepath):
+        return {"error": "文件不存在"}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        return {"error": f"JSON 解析失败: {e}"}
+
+    apps = data.get("applications", [])
+    export_info = data.get("export_info", {})
+    total_sessions = export_info.get("total_sessions", 0)
+    total_daily = sum(len(a.get("daily_usage", [])) for a in apps)
+
+    app_list = []
+    for a in apps:
+        app_list.append({
+            "name": a.get("name", "未知"),
+            "path": a.get("executable_path", ""),
+            "focus_hours": a.get("total_focus_hours", 0),
+            "lifetime_hours": a.get("total_lifetime_hours", 0),
+            "daily_count": len(a.get("daily_usage", [])),
+            "session_count": len(a.get("sessions", [])),
+        })
+
+    return {
+        "app_count": len(apps),
+        "total_sessions": total_sessions,
+        "total_daily": total_daily,
+        "apps": app_list,
+        "export_info": export_info,
+    }
+
+
+def merge_import_json(filepath: str, dry_run: bool = False,
+                      progress_callback=None) -> tuple[bool, dict]:
+    """将 JSON 文件中的数据合并到现有数据库（不删表），按 executable_path 匹配。
+    返回 (是否成功, 结果摘要字典)。
+    """
+    from local_database import SessionLocal
+    from tracking_service import add_or_get_watched_app
+
+    if not os.path.exists(filepath):
+        return False, {"error": "文件不存在"}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        return False, {"error": f"JSON 解析失败: {e}"}
+
+    apps = data.get("applications", [])
+    if not apps:
+        return False, {"error": "JSON 中无应用数据"}
+
+    if not dry_run:
+        bak = _backup_db()
+    else:
+        bak = None
+
+    db = SessionLocal()
+    try:
+        stats = {
+            "apps_added": 0,
+            "apps_updated": 0,
+            "daily_upserted": 0,
+            "bak_path": bak or "",
+        }
+
+        for i, app_data in enumerate(apps):
+            exe_path = normalize_exe_path(app_data.get("executable_path", ""))
+            if not exe_path:
+                continue
+
+            exe_name = app_data.get("name", "未知")
+
+            existing = db.query(WatchedApplication).filter(
+                WatchedApplication.executable_path == exe_path
+            ).first()
+
+            if existing:
+                app = existing
+                stats["apps_updated"] += 1
+                if progress_callback:
+                    progress_callback(f"[UPDATE] {exe_name}")
+            else:
+                app = add_or_get_watched_app(db, exe_path, exe_name)
+                stats["apps_added"] += 1
+                if progress_callback:
+                    progress_callback(f"[ADD] {exe_name}")
+
+            summary = db.query(AppUsageSummary).filter_by(
+                application_id=app.id
+            ).first()
+            if summary:
+                summary.total_focus_time_seconds = int(
+                    app_data.get("total_focus_hours", 0) * 3600)
+                summary.total_lifetime_seconds = int(
+                    app_data.get("total_lifetime_hours", 0) * 3600)
+                if app_data.get("first_seen"):
+                    summary.first_seen_at = datetime.fromisoformat(
+                        app_data["first_seen"].replace(" ", "T"))
+                if app_data.get("last_seen"):
+                    summary.last_seen_end_at = datetime.fromisoformat(
+                        app_data["last_seen"].replace(" ", "T"))
+
+            for d in app_data.get("daily_usage", []):
+                date_obj = datetime.fromisoformat(d["date"]).date()
+                daily = db.query(AppDailyUsage).filter_by(
+                    application_id=app.id, date=date_obj
+                ).first()
+                if not daily:
+                    daily = AppDailyUsage(
+                        application_id=app.id, date=date_obj)
+                    db.add(daily)
+                daily.focus_seconds = int(
+                    d.get("focus_hours", 0) * 3600)
+                daily.lifetime_seconds = int(
+                    d.get("lifetime_hours", 0) * 3600)
+                stats["daily_upserted"] += 1
+
+            if progress_callback:
+                progress_callback(f"[DONE] {exe_name} ({i+1}/{len(apps)})")
+
+        if dry_run:
+            db.rollback()
+            stats["bak_path"] = ""
+            return True, stats
+
+        db.commit()
+        return True, stats
+
+    except Exception as e:
+        db.rollback()
+        return False, {"error": str(e), "bak_path": bak or ""}
+    finally:
+        db.close()

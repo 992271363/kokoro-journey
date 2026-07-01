@@ -75,7 +75,7 @@ def sync_sessions_from_client(
                 summary.total_focus_time_seconds += current_session_focus_seconds
                 summary.last_seen_start_at = start_time
                 summary.last_seen_end_at = end_time
-                if not summary.first_seen_at or summary.first_seen_at > start_time:
+                if not summary.first_seen_at or ensure_aware_dt(summary.first_seen_at) > start_time:
                     summary.first_seen_at = start_time
             
             db.flush()

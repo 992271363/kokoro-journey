@@ -13,7 +13,8 @@ import autostart
 from theme import apply_theme
 from data_dir import get_data_dir
 from widgets import AlwaysDownComboBox
-from data_io import export_data, import_data, clear_all_data, clear_failed_queue
+from data_io import clear_all_data, clear_failed_queue
+from data.data_transfer_dialog import DataTransferDialog
 
 
 class CloseAskDialog(QDialog):
@@ -178,13 +179,9 @@ class SettingsDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        self.btn_export = QPushButton("导出数据")
-        self.btn_export.clicked.connect(self._on_export)
-        btn_row.addWidget(self.btn_export)
-
-        self.btn_import = QPushButton("导入数据")
-        self.btn_import.clicked.connect(self._on_import)
-        btn_row.addWidget(self.btn_import)
+        self.btn_data_transfer = QPushButton("数据转移…")
+        self.btn_data_transfer.clicked.connect(self._on_data_transfer)
+        btn_row.addWidget(self.btn_data_transfer)
 
         self.btn_clear_data = QPushButton("清除所有数据")
         self.btn_clear_data.clicked.connect(self._on_clear_all)
@@ -266,81 +263,9 @@ class SettingsDialog(QDialog):
         if reply == QMessageBox.Yes:
             self._restart_app()
 
-    def _on_export(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("导出数据")
-        dialog.setFixedSize(300, 180)
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
-
-        layout.addWidget(QLabel("选择导出格式："))
-
-        btn_db = QPushButton("数据库文件 (.db)")
-        btn_json = QPushButton("JSON 结构化 (.json)")
-        btn_zip = QPushButton("ZIP（两者）")
-
-        for btn in (btn_db, btn_json, btn_zip):
-            btn.setMinimumHeight(36)
-            layout.addWidget(btn)
-
-        def do_export(fmt):
-            dialog.accept()
-            if fmt == "db":
-                filepath, _ = QFileDialog.getSaveFileName(
-                    self, "导出数据库", "local_client.db", "数据库文件 (*.db)"
-                )
-            elif fmt == "json":
-                filepath, _ = QFileDialog.getSaveFileName(
-                    self, "导出 JSON", "database.json", "JSON 文件 (*.json)"
-                )
-            else:
-                filepath, _ = QFileDialog.getSaveFileName(
-                    self, "导出 ZIP", "backup.zip", "ZIP 文件 (*.zip)"
-                )
-            if not filepath:
-                return
-            ok, msg = export_data(filepath, fmt)
-            if ok:
-                QMessageBox.information(self, "导出成功", msg)
-            else:
-                QMessageBox.critical(self, "导出失败", msg)
-
-        btn_db.clicked.connect(lambda: do_export("db"))
-        btn_json.clicked.connect(lambda: do_export("json"))
-        btn_zip.clicked.connect(lambda: do_export("zip"))
-
+    def _on_data_transfer(self):
+        dialog = DataTransferDialog(self)
         dialog.exec()
-
-    def _on_import(self):
-        reply = QMessageBox.warning(
-            self,
-            "确认导入",
-            "导入将覆盖现有所有数据，是否继续？\n\n"
-            "操作前会自动备份当前数据。",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        filepath, _ = QFileDialog.getOpenFileName(
-            self, "导入数据", "",
-            "支持格式 (*.db *.json *.zip);;数据库 (*.db);;JSON (*.json);;ZIP (*.zip)"
-        )
-        if not filepath:
-            return
-
-        ok, msg = import_data(filepath)
-        if ok:
-            QMessageBox.information(
-                self,
-                "导入成功",
-                f"{msg}\n\n应用将自动重启以加载新数据。",
-            )
-            self._restart_app()
-        else:
-            QMessageBox.critical(self, "导入失败", msg)
 
     def _on_clear_all(self):
         reply = QMessageBox.warning(

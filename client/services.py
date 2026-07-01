@@ -135,8 +135,7 @@ def get_process_list() -> List[ProcessInfo]:
 
 # --- 全局监控 Worker ---
 class ActiveSession:
-    def __init__(self, pid, exe_name, exe_path, start_time):
-        self.pid = pid
+    def __init__(self, exe_name, exe_path, start_time):
         self.exe_name = exe_name
         self.exe_path = exe_path
         self.start_time = start_time
@@ -162,8 +161,8 @@ class GlobalMonitorWorker(QObject):
         self._running = True
         self._paused = False
         self._mutex = QMutex()
-        self._active_sessions: Dict[int, ActiveSession] = {}
-        self._last_tick = None
+        self._active_sessions: Dict[str, ActiveSession] = {}
+        self._pid_to_path: Dict[int, str] = {}
 
     def update_watch_list(self, new_list: List[tuple]):
         """
@@ -181,10 +180,10 @@ class GlobalMonitorWorker(QObject):
     def pause(self):
         with QMutexLocker(self._mutex):
             self._paused = True
-            # 暂停时关闭所有活跃会话
             for session in list(self._active_sessions.values()):
                 self._save_session(session)
             self._active_sessions.clear()
+            self._pid_to_path.clear()
 
     def resume(self):
         with QMutexLocker(self._mutex):
@@ -217,7 +216,7 @@ class GlobalMonitorWorker(QObject):
         self.finished.emit()
 
     def _check_processes_lifecycle_nonblocking(self):
-        current_pids = set()
+        alive_paths = set()
         for proc in psutil.process_iter(['pid', 'name', 'exe']):
             if not self._running:
                 break
@@ -230,30 +229,30 @@ class GlobalMonitorWorker(QObject):
                 p_pid = proc.info['pid']
                 if p_path_key in self._target_apps:
                     matched_path, matched_name = self._target_apps[p_path_key]
-                    current_pids.add(p_pid)
-                    if p_pid not in self._active_sessions:
-                        self._active_sessions[p_pid] = ActiveSession(p_pid, matched_name, matched_path, datetime.datetime.now())
+                    alive_paths.add(p_path_key)
+                    self._pid_to_path[p_pid] = p_path_key
+                    if p_path_key not in self._active_sessions:
+                        self._active_sessions[p_path_key] = ActiveSession(matched_name, matched_path, datetime.datetime.now())
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
-        active_pids = list(self._active_sessions.keys())
-        for pid in active_pids:
-            if pid not in current_pids:
-                self._save_session(self._active_sessions[pid])
-                del self._active_sessions[pid]
+        for path in list(self._active_sessions.keys()):
+            if path not in alive_paths:
+                self._save_session(self._active_sessions[path])
+                del self._active_sessions[path]
 
     def _check_focus_nonblocking(self, delta_seconds: float):
         if not self._running:
             return
         try:
-            # --- 关键修复：先将所有活跃会话的焦点状态重置为 False ---
             for session in self._active_sessions.values():
                 session.is_focused = False
             fg_window = win32gui.GetForegroundWindow()
             if not fg_window: return
             _, fg_pid = win32process.GetWindowThreadProcessId(fg_window)
-            if fg_pid in self._active_sessions:
-                session = self._active_sessions[fg_pid]
+            path = self._pid_to_path.get(fg_pid)
+            if path and path in self._active_sessions:
+                session = self._active_sessions[path]
                 session.is_focused = True
                 session.focus_seconds += delta_seconds
                 window_title = win32gui.GetWindowText(fg_window) or "未知窗口"
@@ -292,47 +291,22 @@ class GlobalMonitorWorker(QObject):
             db.close()
 
     def _force_close_all(self):
-        for pid, session in self._active_sessions.items():
+        for session in self._active_sessions.values():
             self._save_session(session)
         self._active_sessions.clear()
+        self._pid_to_path.clear()
 
     def _emit_status(self):
         status_data = {}
         now = datetime.datetime.now()
-        grouped = {}
-        for pid, session in self._active_sessions.items():
-            path = session.exe_path
-            if path not in grouped:
-                grouped[path] = []
-            grouped[path].append((pid, session))
-
-        for path, sessions in grouped.items():
-            total_focus = 0
-            max_runtime = 0
-            earliest_start = None
-            is_focused = False
-            focused_pid = None
-            name = sessions[0][1].exe_name
-
-            for pid, session in sessions:
-                total_focus += int(session.focus_seconds)
-                runtime = int((now - session.start_time).total_seconds())
-                if runtime > max_runtime:
-                    max_runtime = runtime
-                    earliest_start = session.start_time
-                if session.is_focused:
-                    is_focused = True
-                    focused_pid = pid
-
-            if earliest_start is None:
-                earliest_start = sessions[0][1].start_time
-
+        for path, session in self._active_sessions.items():
+            runtime = int((now - session.start_time).total_seconds())
             status_data[path] = {
-                "name": name,
-                "pid": focused_pid if focused_pid else sessions[0][0],
-                "focus": total_focus,
-                "runtime_seconds": max_runtime,
-                "start_str": earliest_start.strftime("%H:%M:%S"),
-                "is_focused": is_focused
+                "name": session.exe_name,
+                "pid": 0,
+                "focus": int(session.focus_seconds),
+                "runtime_seconds": runtime,
+                "start_str": session.start_time.strftime("%H:%M:%S"),
+                "is_focused": session.is_focused,
             }
         self.status_updated.emit(status_data)
