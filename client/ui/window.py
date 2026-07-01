@@ -323,11 +323,12 @@ class Mywindow(QMainWindow):
 
     def _rebuild_group_buttons(self):
         """重建分组筛选按钮。"""
-        # 清除旧按钮
         for btn in self.group_buttons.buttons():
             self.group_buttons.removeButton(btn)
-            self._group_btn_layout.removeWidget(btn)
-            btn.deleteLater()
+        while self._group_btn_layout.count():
+            item = self._group_btn_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
         groups = AppRepository.get_all_groups()
 
@@ -371,9 +372,11 @@ class Mywindow(QMainWindow):
 
     def _open_group_dialog(self):
         from ui.group import GroupDialog
+        groups_before = AppRepository.get_all_groups()
         GroupDialog(self).exec()
-        self._rebuild_group_buttons()
-        self._refresh_table()
+        if AppRepository.get_all_groups() != groups_before:
+            self._rebuild_group_buttons()
+            self._refresh_table()
 
     def _refresh_table(self):
         apps = AppRepository.get_all_apps(group_filter=self._current_group_id)
