@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QFormLayout, QSpinBox, QGroupBox, QDialogButtonBox,
     QRadioButton, QButtonGroup, QFileDialog, QMessageBox,
-    QLineEdit
+    QLineEdit, QSizePolicy
 )
 
 from util.config import Settings
@@ -23,7 +23,9 @@ class CloseAskDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("确认关闭")
         self.setFixedSize(340, 150)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setWindowFlags(
+            Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 12)
@@ -33,6 +35,8 @@ class CloseAskDialog(QDialog):
         layout.addWidget(hint)
 
         self.remember_check = QCheckBox("记住我的选择，不再询问")
+        self.remember_check.setProperty("remember_bar", True)
+        self.remember_check.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout.addWidget(self.remember_check)
 
         btn_layout = QHBoxLayout()

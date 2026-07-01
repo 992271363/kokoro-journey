@@ -449,6 +449,12 @@ QStatusBar {
 QStatusBar::item {
     border: none;
 }
+
+QCheckBox[remember_bar="true"] {
+    background: rgba(0,0,0,0.04);
+    border-radius: 6px;
+    padding: 8px 12px;
+}
 """
 
 MODERN_DARK_QSS = """
@@ -953,6 +959,12 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked {
     border-color: #3b82f6;
     background-color: #3b82f6;
+}
+
+QCheckBox[remember_bar="true"] {
+    background: rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 8px 12px;
 }
 
 /* ---- 分组框 ---- */
