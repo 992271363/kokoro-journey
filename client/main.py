@@ -7,13 +7,13 @@ os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # Qt 应用入口类
 from PySide6.QtCore import QLockFile, Qt  # Qt 提供的跨平台文件锁工具
 
-from main_window import Mywindow  # 自定义主窗口
-from local_database import create_db_and_tables, delete_database  # 数据库初始化工具
-from settings import Settings  # 配置读取工具
-from theme import apply_theme  # 主题应用工具
-import autostart  # 开机自启动相关工具
-from data_dir import is_data_dir_configured
-from first_run_wizard import FirstRunWizard
+from ui.window import Mywindow
+from db.database import create_db_and_tables, delete_database
+from util.config import Settings
+from ui.theme import apply_theme
+from util import autostart
+from util.path import is_data_dir_configured
+from ui.wizard import FirstRunWizard
 
 
 # ============================================================

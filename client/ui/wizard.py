@@ -4,8 +4,8 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QMessageBox
 )
-from data_dir import _default_appdata, _program_dir
-from settings import Settings
+from util.path import _default_appdata, _program_dir
+from util.config import Settings
 
 
 class FirstRunWizard(QDialog):

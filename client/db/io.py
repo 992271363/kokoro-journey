@@ -5,13 +5,12 @@ import zipfile
 from datetime import datetime
 from typing import Optional
 
-from local_database import SessionLocal, db_path
-from local_models import (
+from db.database import SessionLocal, db_path
+from db.models import (
     WatchedApplication, AppUsageSummary, AppDailyUsage,
     ProcessSession, FocusActivity
 )
-from data_dir import get_data_dir
-from path_utils import normalize_exe_path
+from util.path import get_data_dir, normalize_exe_path
 
 
 def _failed_sessions_path() -> str:
@@ -19,7 +18,6 @@ def _failed_sessions_path() -> str:
 
 
 def _backup_db() -> str:
-    """备份当前数据库，保留最近 5 个。"""
     if not os.path.exists(db_path):
         return ""
     data_dir = get_data_dir()
@@ -28,7 +26,6 @@ def _backup_db() -> str:
     bak_path = os.path.join(data_dir, bak_name)
     shutil.copy2(db_path, bak_path)
 
-    # 清理旧备份，保留最近 5 个
     backups = sorted(
         [f for f in os.listdir(data_dir) if f.startswith("local_client_") and f.endswith(".bak")],
         key=lambda x: os.path.getmtime(os.path.join(data_dir, x))
@@ -40,11 +37,6 @@ def _backup_db() -> str:
 
 
 def export_data(filepath: str, format_type: str) -> tuple[bool, str]:
-    """
-    导出数据。
-    format_type: "db" | "json" | "zip"
-    返回 (是否成功, 消息)
-    """
     if not os.path.exists(db_path):
         return False, "数据库文件不存在"
 
@@ -82,7 +74,6 @@ def export_data(filepath: str, format_type: str) -> tuple[bool, str]:
 
 
 def _build_export_json() -> dict:
-    """构建用户可读的 JSON 导出结构。"""
     db = SessionLocal()
     try:
         apps = db.query(WatchedApplication).all()
@@ -143,21 +134,15 @@ def _build_export_json() -> dict:
 
 
 def import_data(filepath: str) -> tuple[bool, str]:
-    """
-    导入数据（覆盖式）。导入前自动备份。
-    返回 (是否成功, 消息)
-    """
     if not os.path.exists(filepath):
         return False, "文件不存在"
 
     ext = os.path.splitext(filepath)[1].lower()
 
-    # 自动备份当前数据
     bak = _backup_db()
 
     try:
         if ext == ".db":
-            # 直接替换数据库文件
             shutil.copy2(filepath, db_path)
             return True, f"已导入数据库文件（已备份: {bak}）"
 
@@ -193,12 +178,10 @@ def import_data(filepath: str) -> tuple[bool, str]:
 
 
 def _import_from_json(data: dict) -> None:
-    """从 JSON 结构重建数据库。"""
-    from local_database import engine
-    from local_models import Base
-    from tracking_service import add_or_get_watched_app
+    from db.database import engine
+    from db.models import Base
+    from core.tracker import add_or_get_watched_app
 
-    # 清空并重建表
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
@@ -245,7 +228,6 @@ def _import_from_json(data: dict) -> None:
 
 
 def clear_all_data() -> tuple[bool, str]:
-    """清除所有本地数据。"""
     try:
         bak = _backup_db()
         if os.path.exists(db_path):
@@ -259,7 +241,6 @@ def clear_all_data() -> tuple[bool, str]:
 
 
 def clear_failed_queue() -> tuple[bool, str]:
-    """清除失败队列。"""
     try:
         failed_path = _failed_sessions_path()
         if os.path.exists(failed_path):
@@ -271,7 +252,6 @@ def clear_failed_queue() -> tuple[bool, str]:
 
 
 def preview_import_json(filepath: str) -> dict:
-    """解析 JSON 文件并返回预览摘要（不写入数据库）。"""
     if not os.path.exists(filepath):
         return {"error": "文件不存在"}
     try:
@@ -307,11 +287,8 @@ def preview_import_json(filepath: str) -> dict:
 
 def merge_import_json(filepath: str, dry_run: bool = False,
                       progress_callback=None) -> tuple[bool, dict]:
-    """将 JSON 文件中的数据合并到现有数据库（不删表），按 executable_path 匹配。
-    返回 (是否成功, 结果摘要字典)。
-    """
-    from local_database import SessionLocal
-    from tracking_service import add_or_get_watched_app
+    from db.database import SessionLocal
+    from core.tracker import add_or_get_watched_app
 
     if not os.path.exists(filepath):
         return False, {"error": "文件不存在"}

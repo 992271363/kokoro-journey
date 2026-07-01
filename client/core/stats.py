@@ -4,8 +4,8 @@ from typing import List, Tuple, Dict
 from collections import defaultdict
 import os
 
-from local_database import SessionLocal
-from local_models import AppDailyUsage, WatchedApplication
+from db.database import SessionLocal
+from db.models import AppDailyUsage, WatchedApplication
 
 
 @dataclass

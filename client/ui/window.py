@@ -13,23 +13,23 @@ from PySide6.QtWidgets import (
     QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup
 )
 
-from app_repository import AppRepository
-from table_manager import AppTableManager
-from monitor_controller import MonitorController
-from sync_controller import SyncController
-from settings import Settings
-from settings_dialog import CloseAskDialog, SettingsDialog
-from size_grip import StyledSizeGrip
-from pick_overlay import PickOverlay, PickButton
-from theme import get_system_theme
-from search_utils import make_search_keywords, matches_search_keywords
+from db.repository import AppRepository
+from ui.table import AppTableManager
+from core.controller import MonitorController
+from core.sync import SyncController
+from util.config import Settings
+from ui.settings import CloseAskDialog, SettingsDialog
+from ui.widgets import StyledSizeGrip
+from ui.picker import PickOverlay, PickButton
+from ui.theme import get_system_theme
+from util.search import make_search_keywords, matches_search_keywords
 
-from dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
-from login_dialog import LoginDialog
-from stats_dialog import StatsDialog
-from sync_service import get_and_prepare_sync_data, mark_activities_as_synced
-from client_api import send_data_to_api
-from services import retry_failed_sessions, get_failed_queue_count
+from ui.dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
+from ui.login import LoginDialog
+from ui.stats import StatsDialog
+from core.sync import get_and_prepare_sync_data, mark_activities_as_synced
+from core.api import send_data_to_api
+from core.monitor import retry_failed_sessions, get_failed_queue_count
 
 
 def _themed_icon(svg_path, color):
@@ -126,7 +126,7 @@ class Mywindow(QMainWindow):
         if getattr(sys, 'frozen', False):
             self._base = sys._MEIPASS
         else:
-            self._base = os.path.dirname(os.path.abspath(__file__))
+            self._base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         base = self._base
 
         self.btn_monitor_toggle = QPushButton("暂停监控")
@@ -370,7 +370,7 @@ class Mywindow(QMainWindow):
         self._refresh_table()
 
     def _open_group_dialog(self):
-        from group_dialog import GroupDialog
+        from ui.group import GroupDialog
         GroupDialog(self).exec()
         self._rebuild_group_buttons()
         self._refresh_table()
@@ -594,7 +594,6 @@ class Mywindow(QMainWindow):
                 f"成功恢复 {success} 条会话记录，剩余 {remaining} 条待重试", 5000
             )
         elif remaining > 0:
-            # 静默重试，不打扰用户，除非全部成功
             pass
 
     def update_status_bar(self, msg: str):

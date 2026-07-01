@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QFormLayout
 )
 
-from client_api import api_login, LoginStatus, BASE_URL
+from core.api import api_login, LoginStatus, BASE_URL
 
 
 class LoginWorker(QObject):

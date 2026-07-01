@@ -1,4 +1,12 @@
 import os
+
+
+def normalize_exe_path(path: str) -> str:
+    if not path:
+        return ""
+    return os.path.normcase(os.path.normpath(path.strip()))
+
+
 import sys
 import json
 
@@ -6,7 +14,7 @@ import json
 def _program_dir() -> str:
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _settings_dir() -> str:

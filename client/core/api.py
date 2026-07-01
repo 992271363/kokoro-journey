@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1").rstrip('/')
 API_URL = f"{BASE_URL}/api"
 

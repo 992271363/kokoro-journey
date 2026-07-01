@@ -7,19 +7,19 @@ from PySide6.QtWidgets import (
     QButtonGroup
 )
 
-from widgets import AlwaysDownComboBox
+from ui.widgets import AlwaysDownComboBox
 from PySide6.QtCharts import (
     QChartView, QChart, QBarSeries, QBarSet,
     QBarCategoryAxis, QValueAxis, QPieSeries, QPieSlice
 )
 
-from stats_service import (
+from core.stats import (
     get_weekly_stats, get_monthly_stats,
     get_recent_daily_stats, get_all_daily_stats,
     get_weekly_detail, get_monthly_detail, get_daily_detail,
     AppPeriodStat, PeriodStat,
 )
-from utils import format_seconds_to_text
+from util.format import format_seconds_to_text
 
 
 class StatsDialog(QDialog):

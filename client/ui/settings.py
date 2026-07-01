@@ -8,13 +8,13 @@ from PySide6.QtWidgets import (
     QLineEdit
 )
 
-from settings import Settings
-import autostart
-from theme import apply_theme
-from data_dir import get_data_dir
-from widgets import AlwaysDownComboBox
-from data_io import clear_all_data, clear_failed_queue
-from data.data_transfer_dialog import DataTransferDialog
+from util.config import Settings
+from util import autostart
+from ui.theme import apply_theme
+from util.path import get_data_dir
+from ui.widgets import AlwaysDownComboBox
+from db.io import clear_all_data, clear_failed_queue
+from ui.transfer import DataTransferDialog
 
 
 class CloseAskDialog(QDialog):

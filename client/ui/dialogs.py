@@ -6,9 +6,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont
 import os
 
-from local_models import WatchedApplication
-from utils import format_seconds_to_text
-from proc_dialog import ProcSelectDialog
+from db.models import WatchedApplication
+from util.format import format_seconds_to_text
+from ui.proc import ProcSelectDialog
 
 
 class AddAppDialog(QDialog):

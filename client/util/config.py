@@ -1,7 +1,7 @@
 import json
 import os
 
-from data_dir import _settings_dir
+from util.path import _settings_dir
 
 
 class Settings:

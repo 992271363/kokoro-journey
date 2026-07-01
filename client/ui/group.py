@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QInputDialog
 )
 
-from app_repository import AppRepository
+from db.repository import AppRepository
 
 
 class GroupDialog(QDialog):

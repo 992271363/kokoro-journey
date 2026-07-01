@@ -1,8 +1,8 @@
 import datetime
 from sqlalchemy.orm import Session
-from local_models import (WatchedApplication, AppUsageSummary,
+from db.models import (WatchedApplication, AppUsageSummary,
                             ProcessSession, FocusActivity, AppDailyUsage, AppGroup)
-from path_utils import normalize_exe_path
+from util.path import normalize_exe_path
 
 
 def add_or_get_watched_app(db: Session, executable_path: str, executable_name: str):

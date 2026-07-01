@@ -54,7 +54,7 @@ QPushButton:disabled {
 
 /* 次要按钮（取消、关闭等） */
 QPushButton[secondary="true"],
-DialogButtonBox QPushButton {
+QDialogButtonBox QPushButton {
     background-color: #f1f5f9;
     color: #000000;
     border: 1px solid #cbd5e1;

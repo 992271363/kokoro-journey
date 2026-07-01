@@ -1,6 +1,7 @@
 from PySide6.QtCore import QObject, Signal, QThread
-from services import GlobalMonitorWorker
-from shutdown_helper import wait_for_thread
+from core.monitor import GlobalMonitorWorker, get_failed_queue_count, retry_failed_sessions
+from db.repository import AppRepository
+from util.shutdown import wait_for_thread
 from typing import List
 
 

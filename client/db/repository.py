@@ -4,13 +4,13 @@ from typing import List, Optional, Tuple
 from sqlalchemy.orm import joinedload
 from sqlalchemy import distinct
 
-from local_database import SessionLocal
-from local_models import (
+from db.database import SessionLocal
+from db.models import (
     WatchedApplication, AppUsageSummary, AppDailyUsage,
     ProcessSession, FocusActivity, AppGroup, AppGroupAssociation, AppColorTag
 )
-from tracking_service import add_or_get_watched_app
-from path_utils import normalize_exe_path
+from core.tracker import add_or_get_watched_app
+from util.path import normalize_exe_path
 
 
 @dataclass
@@ -34,7 +34,6 @@ class AppRepository:
 
     @staticmethod
     def get_all_apps(group_filter: int = None) -> List[AppInfo]:
-        """返回所有应用（含未监视），支持按分组筛选。group_filter=None 表示全部。"""
         db = SessionLocal()
         try:
             if group_filter is not None:
@@ -73,11 +72,8 @@ class AppRepository:
         finally:
             db.close()
 
-    # ---- 分组 CRUD ----
-
     @staticmethod
     def get_all_groups() -> List[Tuple[int, str]]:
-        """返回所有分组 [(id, name), ...]。"""
         db = SessionLocal()
         try:
             groups = db.query(AppGroup).all()
@@ -87,7 +83,6 @@ class AppRepository:
 
     @staticmethod
     def create_group(name: str) -> Optional[int]:
-        """创建分组，返回 id。已存在则返回 None。"""
         db = SessionLocal()
         try:
             existing = db.query(AppGroup).filter_by(name=name).first()
@@ -102,7 +97,6 @@ class AppRepository:
 
     @staticmethod
     def delete_group(group_id: int) -> bool:
-        """删除分组（默认分组不可删）。"""
         db = SessionLocal()
         try:
             group = db.query(AppGroup).filter_by(id=group_id).first()
@@ -117,7 +111,6 @@ class AppRepository:
 
     @staticmethod
     def rename_group(group_id: int, new_name: str) -> bool:
-        """重命名分组。"""
         db = SessionLocal()
         try:
             group = db.query(AppGroup).filter_by(id=group_id).first()
@@ -131,7 +124,6 @@ class AppRepository:
 
     @staticmethod
     def set_app_groups(exe_path: str, group_ids: List[int]) -> None:
-        """给应用设置分组（覆盖式）。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
@@ -146,7 +138,6 @@ class AppRepository:
 
     @staticmethod
     def get_app_groups(exe_path: str) -> List[Tuple[int, str]]:
-        """获取应用所属的分组。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
@@ -159,7 +150,6 @@ class AppRepository:
 
     @staticmethod
     def toggle_app_group(exe_path: str, group_id: int) -> bool:
-        """切换应用在某分组中的状态。返回 True 表示现在在组里。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
@@ -178,11 +168,8 @@ class AppRepository:
         finally:
             db.close()
 
-    # ---- 颜色标记 ----
-
     @staticmethod
     def add_color_tag(exe_path: str, color: str) -> bool:
-        """给应用添加颜色标记。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
@@ -202,7 +189,6 @@ class AppRepository:
 
     @staticmethod
     def remove_color_tag(exe_path: str, color: str) -> bool:
-        """移除应用的某个颜色标记。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
@@ -222,7 +208,6 @@ class AppRepository:
 
     @staticmethod
     def clear_color_tags(exe_path: str) -> bool:
-        """清除应用的所有颜色标记。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
@@ -237,7 +222,6 @@ class AppRepository:
 
     @staticmethod
     def get_color_tags(exe_path: str) -> List[str]:
-        """获取应用的颜色标记列表。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
@@ -250,7 +234,6 @@ class AppRepository:
 
     @staticmethod
     def get_watched_apps_info() -> List[Tuple[str, str]]:
-        """只返回 is_watched=True 的应用，给后台监控器用。"""
         db = SessionLocal()
         try:
             apps = db.query(WatchedApplication).filter_by(is_watched=True).all()
@@ -293,17 +276,14 @@ class AppRepository:
 
     @staticmethod
     def delete_app_completely(exe_path: str) -> bool:
-        """彻底删除应用及其所有历史数据。"""
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
             app = db.query(WatchedApplication).filter_by(executable_path=exe_path).first()
             if not app:
                 return False
-            # 清理关联表
             db.query(AppColorTag).filter_by(application_id=app.id).delete()
             db.query(AppGroupAssociation).filter_by(application_id=app.id).delete()
-            # 手动按依赖顺序删除子表
             db.query(AppDailyUsage).filter_by(application_id=app.id).delete()
             summary = db.query(AppUsageSummary).filter_by(application_id=app.id).first()
             if summary:

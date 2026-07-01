@@ -7,9 +7,9 @@ from PySide6.QtWidgets import (
 )
 
 from typing import List
-from utils import format_seconds_to_text
-from app_repository import AppInfo, AppRepository
-from settings import Settings
+from util.format import format_seconds_to_text
+from db.repository import AppInfo, AppRepository
+from util.config import Settings
 
 _collator = QCollator()
 _collator.setCaseSensitivity(Qt.CaseInsensitive)
@@ -444,7 +444,7 @@ class AppTableManager(QObject):
         elif action == toggle_watch_action:
             self.watch_toggled_requested.emit(exe_path, not is_watched)
         elif action == manage_groups_action:
-            from group_dialog import GroupDialog
+            from ui.group import GroupDialog
             GroupDialog(self.table).exec()
         elif action == clear_colors_action:
             AppRepository.clear_color_tags(exe_path)

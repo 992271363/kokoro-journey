@@ -5,8 +5,8 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView
 )  # 批量导入所需控件和布局类
 
-from services import get_process_list  # 进程列表数据源
-from search_utils import make_search_keywords, matches_search_keywords
+from core.monitor import get_process_list  # 进程列表数据源
+from util.search import make_search_keywords, matches_search_keywords
 
 
 class ProcSelectDialog(QDialog):

@@ -1,7 +1,7 @@
 import winreg
 from PySide6.QtWidgets import QApplication
-from styles import MODERN_LIGHT_QSS, MODERN_DARK_QSS
-from settings import Settings
+from ui.styles import MODERN_LIGHT_QSS, MODERN_DARK_QSS
+from util.config import Settings
 
 
 def get_system_theme() -> str:

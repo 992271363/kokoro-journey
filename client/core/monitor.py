@@ -7,8 +7,8 @@ import win32gui
 import win32process
 from PySide6.QtCore import QObject, Signal, QMutex, QMutexLocker
 from typing import List, Dict, TypedDict
-from path_utils import normalize_exe_path
-from data_dir import get_data_dir
+from util.path import normalize_exe_path
+from util.path import get_data_dir
 
 # --- 失败队列文件路径 ---
 _FAILED_QUEUE_DIR = get_data_dir()
@@ -63,8 +63,8 @@ def retry_failed_sessions() -> tuple[int, int]:
     在主线程中调用，重试队列中的失败会话。
     返回 (成功数, 剩余数)。
     """
-    from local_database import SessionLocal
-    from tracking_service import record_process_session
+    from db.database import SessionLocal
+    from core.tracker import record_process_session
 
     queue = _load_failed_queue()
     if not queue:
@@ -261,8 +261,8 @@ class GlobalMonitorWorker(QObject):
             pass
 
     def _save_session(self, session: ActiveSession):
-        from local_database import SessionLocal
-        from tracking_service import record_process_session
+        from db.database import SessionLocal
+        from core.tracker import record_process_session
         end_time = datetime.datetime.now()
         if (end_time - session.start_time).total_seconds() < 2: return
         db = SessionLocal()
