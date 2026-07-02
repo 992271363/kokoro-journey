@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QFormLayout, QSpinBox, QGroupBox, QDialogButtonBox,
     QRadioButton, QButtonGroup, QFileDialog, QMessageBox,
-    QLineEdit, QSizePolicy, QSlider
+    QLineEdit, QSizePolicy, QSlider, QStyle, QStyleOptionSlider
 )
 
 from util.config import Settings
@@ -15,6 +15,14 @@ from util.path import get_data_dir
 from ui.widgets import AlwaysDownComboBox
 from db.io import clear_all_data, clear_failed_queue
 from ui.transfer import DataTransferDialog
+
+
+class StepSlider(QSlider):
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        snapped = round(self.value() / 25) * 25
+        if snapped != self.value():
+            self.setValue(snapped)
 
 
 class ZoomDialog(QDialog):
@@ -40,7 +48,7 @@ class ZoomDialog(QDialog):
         layout.setSpacing(8)
 
         row = QHBoxLayout()
-        self.slider = QSlider(Qt.Horizontal)
+        self.slider = StepSlider(Qt.Horizontal)
         self.slider.setRange(75, 200)
         self.slider.setSingleStep(25)
         self.slider.setPageStep(25)
@@ -54,6 +62,15 @@ class ZoomDialog(QDialog):
         self.spinbox.setSuffix("%")
         self.spinbox.setValue(self._original_zoom)
         self.spinbox.setFixedWidth(80)
+        self.spinbox.setStyleSheet("""
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 22px;
+            }
+            QSpinBox::up-arrow, QSpinBox::down-arrow {
+                width: 10px;
+                height: 10px;
+            }
+        """)
 
         self.slider.valueChanged.connect(self._on_slider_changed)
         self.spinbox.valueChanged.connect(self._on_spinbox_changed)

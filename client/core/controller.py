@@ -33,6 +33,10 @@ class MonitorController(QObject):
         if self._worker:
             self._worker.update_watch_list(new_list)
 
+    def force_stop_tracking(self, exe_path: str):
+        if self._worker:
+            self._worker.force_stop_tracking(exe_path)
+
     def pause(self):
         if self._worker:
             self._worker.pause()

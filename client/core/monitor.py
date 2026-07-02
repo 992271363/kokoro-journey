@@ -174,6 +174,15 @@ class GlobalMonitorWorker(QObject):
                 for path, name in new_list
             }
 
+    def force_stop_tracking(self, exe_path: str):
+        path_key = normalize_exe_path(exe_path)
+        with QMutexLocker(self._mutex):
+            self._target_apps.pop(path_key, None)
+            self._active_sessions.pop(path_key, None)
+            stale_pids = [pid for pid, p in self._pid_to_path.items() if p == path_key]
+            for pid in stale_pids:
+                del self._pid_to_path[pid]
+
     def stop(self):
         self._running = False
 

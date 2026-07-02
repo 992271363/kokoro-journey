@@ -234,8 +234,7 @@ class Mywindow(QMainWindow):
         self.table_manager.watch_toggled_requested.connect(self._on_watch_toggled)
         self.table_manager.hard_delete_requested.connect(self._on_hard_delete_requested)
         self.table_manager.table_width_hint.connect(self._adjust_window_width)
-        initial_zoom = int(self._settings.get("tableZoom", 100))
-        self.table_manager.apply_zoom(initial_zoom / 100.0)
+        self._apply_table_zoom_from_settings()
 
         self.monitor_controller = MonitorController(self)
         self.monitor_controller.status_updated.connect(self.table_manager.update_status)
@@ -425,6 +424,9 @@ class Mywindow(QMainWindow):
         extra = margins.left() + margins.right()
         new_width = table_content_width + extra
         new_height = int(new_width * 9 / 16)
+        screen = self.screen().availableGeometry()
+        new_width = min(new_width, screen.width())
+        new_height = min(new_height, screen.height())
         self.resize(new_width, new_height)
 
     def _refresh_monitor_list(self):
@@ -467,7 +469,10 @@ class Mywindow(QMainWindow):
     def _on_hard_delete_requested(self, exe_path: str, exe_name: str):
         ok = AppRepository.delete_app_completely(exe_path)
         if ok:
+            self.monitor_controller.force_stop_tracking(exe_path)
+            self.table_manager.table.setUpdatesEnabled(False)
             self._refresh_table()
+            self.table_manager.table.setUpdatesEnabled(True)
             self._refresh_monitor_list()
 
     def start_pick_window(self):
@@ -584,6 +589,11 @@ class Mywindow(QMainWindow):
 
     def open_settings_dialog(self):
         SettingsDialog(self).exec()
+        self._apply_table_zoom_from_settings()
+
+    def _apply_table_zoom_from_settings(self):
+        zoom = int(self._settings.get("tableZoom", 100))
+        self.table_manager.apply_zoom(zoom / 100.0)
 
     def open_stats(self):
         StatsDialog(parent=self).exec()

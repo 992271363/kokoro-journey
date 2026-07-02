@@ -142,9 +142,8 @@ class AppTableManager(QObject):
 
         if live_preview:
             self._adjust_name_column_width()
-            self._emit_table_width_hint()
         elif self._last_apps:
-            self.refresh(self._last_apps)
+            self.refresh(self._last_apps, skip_width_hint=True)
         else:
             self._refresh_zoom_only()
 
@@ -158,7 +157,6 @@ class AppTableManager(QObject):
                 )
             )
         self._adjust_name_column_width()
-        self._emit_table_width_hint()
 
     def _setup_table(self):
         columns = ["状态", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
@@ -211,7 +209,7 @@ class AppTableManager(QObject):
         container.setProperty("status_text", tooltip)
         return container
 
-    def refresh(self, apps: List[AppInfo]):
+    def refresh(self, apps: List[AppInfo], skip_width_hint: bool = False):
         self._last_apps = apps
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
@@ -282,7 +280,8 @@ class AppTableManager(QObject):
 
         self._restore_sort()
         self._adjust_name_column_width()
-        self._emit_table_width_hint()
+        if not skip_width_hint:
+            self._emit_table_width_hint()
 
     def update_status(self, status_data: dict):
         self.table.setSortingEnabled(False)
@@ -570,10 +569,11 @@ class AppTableManager(QObject):
         if col is not None and order_str is not None:
             try:
                 col = int(col)
-                # 列迁移：图标列插入后，旧排序列 >= 1 的索引 +1
-                if col >= 1:
+                # 列迁移：图标列插入后，旧排序列 >= 1 的索引 +1（仅一次）
+                if col >= 1 and not self._settings.get("_col_migrated"):
                     col += 1
                     self._settings.set("tableSortColumn", col)
+                    self._settings.set("_col_migrated", True)
                 if 0 <= col < self.table.columnCount():
                     order = Qt.AscendingOrder if order_str == "asc" else Qt.DescendingOrder
                     SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
