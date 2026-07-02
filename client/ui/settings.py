@@ -1,3 +1,4 @@
+import datetime
 import os
 import shutil
 from PySide6.QtCore import Qt, QTimer
@@ -182,9 +183,11 @@ class CloseAskDialog(QDialog):
 
 class SettingsDialog(QDialog):
 
-    def __init__(self, parent=None, total_runtime=0):
+    def __init__(self, parent=None, app_start_time=None, total_runtime=0):
         super().__init__(parent)
         self.setWindowTitle("设置")
+        self._app_start_time = app_start_time
+        self._base_runtime = total_runtime
         self.setMinimumWidth(380)
         self.setWindowFlags(
             Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
@@ -314,10 +317,26 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(data_group)
 
-        runtime_label = QLabel(f"程序已累计运行 {format_seconds_to_text(total_runtime)}")
-        runtime_label.setAlignment(Qt.AlignCenter)
-        runtime_label.setStyleSheet("QLabel { color: #888; font-size: 12px; }")
-        layout.addWidget(runtime_label)
+        # --- 运行统计 ---
+        stats_group = QGroupBox("运行统计")
+        stats_layout = QVBoxLayout(stats_group)
+        stats_layout.setContentsMargins(12, 16, 12, 12)
+        stats_layout.setSpacing(6)
+
+        self._label_current = QLabel("本次运行：计算中…")
+        self._label_current.setStyleSheet("QLabel { font-size: 13px; }")
+        stats_layout.addWidget(self._label_current)
+
+        self._label_total = QLabel("累计运行：计算中…")
+        self._label_total.setStyleSheet("QLabel { font-size: 13px; color: #888; }")
+        stats_layout.addWidget(self._label_total)
+
+        layout.addWidget(stats_group)
+
+        self._runtime_timer = QTimer(self)
+        self._runtime_timer.timeout.connect(self._update_runtime_display)
+        self._runtime_timer.start(1000)
+        self._update_runtime_display()
 
         layout.addStretch()
 
@@ -326,6 +345,13 @@ class SettingsDialog(QDialog):
         btn_box.accepted.connect(self._on_accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
+
+    def _update_runtime_display(self):
+        if self._app_start_time:
+            session_secs = int((datetime.datetime.now() - self._app_start_time).total_seconds())
+            self._label_current.setText(f"本次运行：{format_seconds_to_text(session_secs)}")
+            total_secs = self._base_runtime + session_secs
+            self._label_total.setText(f"累计运行：{format_seconds_to_text(total_secs)}")
 
     def _on_change_data_dir(self):
         current = get_data_dir()
