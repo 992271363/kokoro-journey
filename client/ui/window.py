@@ -1,3 +1,4 @@
+import datetime
 import time
 import os
 import sys
@@ -262,6 +263,9 @@ class Mywindow(QMainWindow):
         self.login_action.triggered.connect(self.open_login_dialog)
         self.logout_action.triggered.connect(self._logout)
         self.btn_stats.clicked.connect(self.open_stats)
+
+        # ---- 运行统计 ----
+        self._app_start_time = datetime.datetime.now()
 
         # ---- 启动 ----
         self.statusBar().setSizeGripEnabled(False)
@@ -588,7 +592,8 @@ class Mywindow(QMainWindow):
         )
 
     def open_settings_dialog(self):
-        SettingsDialog(self).exec()
+        total_runtime = self._settings.get("appTotalRuntime", 0)
+        SettingsDialog(self, total_runtime).exec()
         self._apply_table_zoom_from_settings()
 
     def _apply_table_zoom_from_settings(self):
@@ -661,6 +666,11 @@ class Mywindow(QMainWindow):
             pass
 
     def _do_graceful_shutdown(self):
+        session_runtime = int((datetime.datetime.now() - self._app_start_time).total_seconds())
+        if session_runtime > 0:
+            total = self._settings.get("appTotalRuntime", 0) + session_runtime
+            self._settings.set("appTotalRuntime", total)
+
         self._closing_dialog = ClosingDialog(self)
         self._closing_dialog.show()
         for _ in range(5):

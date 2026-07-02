@@ -15,6 +15,7 @@ from util.path import get_data_dir
 from ui.widgets import AlwaysDownComboBox
 from db.io import clear_all_data, clear_failed_queue
 from ui.transfer import DataTransferDialog
+from util.format import format_seconds_to_text
 
 
 class StepSlider(QSlider):
@@ -181,7 +182,7 @@ class CloseAskDialog(QDialog):
 
 class SettingsDialog(QDialog):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, total_runtime=0):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.setMinimumWidth(380)
@@ -312,6 +313,11 @@ class SettingsDialog(QDialog):
         data_form.addRow(btn_row)
 
         layout.addWidget(data_group)
+
+        runtime_label = QLabel(f"程序已累计运行 {format_seconds_to_text(total_runtime)}")
+        runtime_label.setAlignment(Qt.AlignCenter)
+        runtime_label.setStyleSheet("QLabel { color: #888; font-size: 12px; }")
+        layout.addWidget(runtime_label)
 
         layout.addStretch()
 
