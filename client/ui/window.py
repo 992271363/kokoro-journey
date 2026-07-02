@@ -24,6 +24,10 @@ from ui.picker import PickOverlay, PickButton
 from ui.theme import get_system_theme
 from util.search import make_search_keywords, matches_search_keywords
 
+class _NoContextToolBar(QToolBar):
+    def contextMenuEvent(self, event):
+        pass
+
 from ui.dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
 from ui.login import LoginDialog
 from ui.stats import StatsDialog
@@ -81,7 +85,7 @@ class Mywindow(QMainWindow):
         main_layout.setSpacing(0)
 
 # ---- 工具栏 ----
-        toolbar = QToolBar()
+        toolbar = _NoContextToolBar()
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
         toolbar.setIconSize(QSize(27, 27))
@@ -158,6 +162,8 @@ class Mywindow(QMainWindow):
         self._group_btn_layout = QHBoxLayout(self._group_btn_container)
         self._group_btn_layout.setContentsMargins(0, 0, 0, 0)
         self._group_btn_layout.setSpacing(4)
+        self._group_btn_container.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._group_btn_container.customContextMenuRequested.connect(self._on_group_context_menu)
         toolbar.addWidget(self._group_btn_container)
         self._rebuild_group_buttons()
         self.group_buttons.buttonClicked.connect(self._on_group_changed)
@@ -369,6 +375,11 @@ class Mywindow(QMainWindow):
         gid = btn.property("group_id")
         self._current_group_id = gid
         self._refresh_table()
+
+    def _on_group_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.addAction("管理分组...").triggered.connect(self._open_group_dialog)
+        menu.exec(self._group_btn_container.mapToGlobal(pos))
 
     def _open_group_dialog(self):
         from ui.group import GroupDialog
