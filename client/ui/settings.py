@@ -1,11 +1,11 @@
 import os
 import shutil
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QCheckBox, QFormLayout, QSpinBox, QGroupBox, QDialogButtonBox,
     QRadioButton, QButtonGroup, QFileDialog, QMessageBox,
-    QLineEdit, QSizePolicy
+    QLineEdit, QSizePolicy, QSlider
 )
 
 from util.config import Settings
@@ -15,6 +15,99 @@ from util.path import get_data_dir
 from ui.widgets import AlwaysDownComboBox
 from db.io import clear_all_data, clear_failed_queue
 from ui.transfer import DataTransferDialog
+
+
+class ZoomDialog(QDialog):
+
+    def __init__(self, parent, main_window):
+        super().__init__(parent)
+        self._main_window = main_window
+        self.setWindowTitle("调整列表缩放")
+        self.setFixedSize(340, 140)
+        self.setWindowFlags(
+            Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
+        )
+
+        self._original_zoom = int(Settings().get("tableZoom", 100))
+        self._debounce_timer = QTimer(self)
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.setInterval(200)
+        self._debounce_timer.timeout.connect(self._apply_full_zoom)
+        self._pending_zoom = self._original_zoom
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 10)
+        layout.setSpacing(8)
+
+        row = QHBoxLayout()
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(75, 200)
+        self.slider.setSingleStep(25)
+        self.slider.setPageStep(25)
+        self.slider.setTickPosition(QSlider.TicksBelow)
+        self.slider.setTickInterval(25)
+        self.slider.setValue(self._original_zoom)
+
+        self.spinbox = QSpinBox()
+        self.spinbox.setRange(75, 200)
+        self.spinbox.setSingleStep(25)
+        self.spinbox.setSuffix("%")
+        self.spinbox.setValue(self._original_zoom)
+        self.spinbox.setFixedWidth(80)
+
+        self.slider.valueChanged.connect(self._on_slider_changed)
+        self.spinbox.valueChanged.connect(self._on_spinbox_changed)
+
+        row.addWidget(self.slider, stretch=1)
+        row.addWidget(self.spinbox)
+        layout.addLayout(row)
+
+        labels = QHBoxLayout()
+        labels.addWidget(QLabel("75%"))
+        labels.addStretch()
+        labels.addWidget(QLabel("200%"))
+        layout.addLayout(labels)
+
+        layout.addStretch()
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_box.accepted.connect(self._on_accept)
+        btn_box.rejected.connect(self._on_reject)
+        layout.addWidget(btn_box)
+
+    def _on_slider_changed(self, value):
+        self.spinbox.blockSignals(True)
+        self.spinbox.setValue(value)
+        self.spinbox.blockSignals(False)
+        self._apply_live_zoom(value, live_preview=True)
+        self._pending_zoom = value
+        self._debounce_timer.start()
+
+    def _on_spinbox_changed(self, value):
+        self.slider.blockSignals(True)
+        self.slider.setValue(value)
+        self.slider.blockSignals(False)
+        self._apply_live_zoom(value, live_preview=True)
+        self._pending_zoom = value
+        self._debounce_timer.start()
+
+    def _apply_full_zoom(self):
+        self._apply_live_zoom(self._pending_zoom, live_preview=False)
+
+    def _apply_live_zoom(self, value, live_preview=False):
+        if self._main_window and hasattr(self._main_window, 'table_manager'):
+            self._main_window.table_manager.apply_zoom(value / 100.0, live_preview)
+
+    def _on_accept(self):
+        self._debounce_timer.stop()
+        self._apply_live_zoom(self.slider.value(), live_preview=False)
+        Settings().set("tableZoom", self.slider.value())
+        self.accept()
+
+    def _on_reject(self):
+        self._debounce_timer.stop()
+        self._apply_live_zoom(self._original_zoom, live_preview=False)
+        self.reject()
 
 
 class CloseAskDialog(QDialog):
@@ -160,6 +253,10 @@ class SettingsDialog(QDialog):
         theme_layout.addWidget(self.radio_dark)
         theme_layout.addWidget(self.radio_system)
         display_form.addRow(theme_label, theme_layout)
+
+        self.btn_zoom = QPushButton("调整列表缩放...")
+        self.btn_zoom.clicked.connect(self._open_zoom_dialog)
+        display_form.addRow(self.btn_zoom)
 
         layout.addWidget(display_group)
 
@@ -332,3 +429,7 @@ class SettingsDialog(QDialog):
             self.parent()._refresh_toolbar_icons()
 
         self.accept()
+
+    def _open_zoom_dialog(self):
+        dialog = ZoomDialog(self, self.parent())
+        dialog.exec()

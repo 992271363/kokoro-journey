@@ -234,6 +234,8 @@ class Mywindow(QMainWindow):
         self.table_manager.watch_toggled_requested.connect(self._on_watch_toggled)
         self.table_manager.hard_delete_requested.connect(self._on_hard_delete_requested)
         self.table_manager.table_width_hint.connect(self._adjust_window_width)
+        initial_zoom = int(self._settings.get("tableZoom", 100))
+        self.table_manager.apply_zoom(initial_zoom / 100.0)
 
         self.monitor_controller = MonitorController(self)
         self.monitor_controller.status_updated.connect(self.table_manager.update_status)

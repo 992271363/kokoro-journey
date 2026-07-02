@@ -1,6 +1,6 @@
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal, QObject, QCollator
-from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import Qt, Signal, QObject, QCollator, QSize
+from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMenu, QMessageBox, QWidget, QHBoxLayout, QLabel
@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 
 from typing import List
 from util.format import format_seconds_to_text
+from util.icon import get_exe_icon
 from db.repository import AppInfo, AppRepository
 from util.config import Settings
 
@@ -42,7 +43,7 @@ class StyledHeaderView(QHeaderView):
     def paintSection(self, painter, rect, logicalIndex):
         super().paintSection(painter, rect, logicalIndex)
 
-        if logicalIndex == 1:
+        if logicalIndex == 2:
             painter.save()
             painter.setPen(QPen(self._DIVIDER_COLOR, 2))
             painter.drawLine(rect.right(), rect.top() + 4, rect.right(), rect.bottom() - 4)
@@ -119,10 +120,48 @@ class AppTableManager(QObject):
         super().__init__(parent)
         self.table = table_widget
         self._settings = settings
+        self._zoom_factor = 1.0
+        self._base_font = QFont(self.table.font())
+        self._last_apps: List[AppInfo] = []
         self._setup_table()
 
+    def apply_zoom(self, factor: float, live_preview: bool = False):
+        factor = max(0.5, min(2.5, factor))
+        self._zoom_factor = factor
+
+        font = QFont(self._base_font)
+        base_size = self._base_font.pointSizeF() or 13
+        font.setPointSizeF(base_size * factor)
+        self.table.setFont(font)
+        self.table.horizontalHeader().setFont(font)
+
+        icon_sz = max(8, int(round(20 * factor)))
+        self.table.setIconSize(QSize(icon_sz, icon_sz))
+
+        self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
+
+        if live_preview:
+            self._adjust_name_column_width()
+            self._emit_table_width_hint()
+        elif self._last_apps:
+            self.refresh(self._last_apps)
+        else:
+            self._refresh_zoom_only()
+
+    def _refresh_zoom_only(self):
+        for row in range(self.table.rowCount()):
+            self.table.setCellWidget(
+                row, 0,
+                self._create_status_label(
+                    self.table.cellWidget(row, 0).property("status_color") or "#cbd5e0",
+                    self.table.cellWidget(row, 0).property("status_text") or ""
+                )
+            )
+        self._adjust_name_column_width()
+        self._emit_table_width_hint()
+
     def _setup_table(self):
-        columns = ["状态", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
+        columns = ["状态", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
         self.table.setColumnCount(len(columns))
 
         header = StyledHeaderView(Qt.Horizontal, self.table)
@@ -131,29 +170,30 @@ class AppTableManager(QObject):
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Interactive)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
 
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.doubleClicked.connect(self._on_double_clicked)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
-        self.table.setColumnWidth(1, 250)
+        self.table.setColumnWidth(2, 250)
         self.table.setAlternatingRowColors(True)
+        self.table.setIconSize(QSize(20, 20))
 
         self.table.setSortingEnabled(True)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._on_sort_indicator_changed)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._save_sort_preference)
         
 
-    @staticmethod
-    def _create_status_label(color_hex: str, tooltip: str = ""):
+    def _create_status_label(self, color_hex: str, tooltip: str = ""):
         container = QWidget()
         container.setStyleSheet("background: transparent;")
         container.setToolTip(tooltip)
@@ -161,8 +201,10 @@ class AppTableManager(QObject):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setAlignment(Qt.AlignCenter)
         dot = QLabel()
-        dot.setFixedSize(14, 14)
-        dot.setStyleSheet(f"background-color: {color_hex}; border-radius: 7px;")
+        dot_size = max(6, int(round(14 * self._zoom_factor)))
+        dot.setFixedSize(dot_size, dot_size)
+        radius = max(3, dot_size // 2)
+        dot.setStyleSheet(f"background-color: {color_hex}; border-radius: {radius}px;")
         dot.setToolTip(tooltip)
         layout.addWidget(dot)
         container.setProperty("status_color", color_hex)
@@ -170,6 +212,7 @@ class AppTableManager(QObject):
         return container
 
     def refresh(self, apps: List[AppInfo]):
+        self._last_apps = apps
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
         for app in apps:
@@ -195,6 +238,11 @@ class AppTableManager(QObject):
             self.table.setItem(row, 0, status_item)
             self.table.setCellWidget(row, 0, self._create_status_label(status_color, status_text))
 
+            # 图标列
+            icon_item = SortableTableWidgetItem("")
+            icon_item.setIcon(get_exe_icon(app.exe_path))
+            self.table.setItem(row, 1, icon_item)
+
             name_item = SortableTableWidgetItem(Path(app.exe_name).stem)
             name_item.setData(Qt.UserRole, app.exe_path)
             name_item.setData(_LAUNCH_PATH_ROLE, app.launch_path or app.exe_path)
@@ -204,33 +252,33 @@ class AppTableManager(QObject):
             if app.color_tags:
                 dots = " ".join(f'<span style="color:{c};">●</span>' for c in app.color_tags)
                 name_item.setText(f"{Path(app.exe_name).stem}  {dots}")
-            self.table.setItem(row, 1, name_item)
+            self.table.setItem(row, 2, name_item)
 
             item_cur_focus = SortableTableWidgetItem("-")
             item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-            self.table.setItem(row, 2, item_cur_focus)
+            self.table.setItem(row, 3, item_cur_focus)
 
             item_cur_run = SortableTableWidgetItem("-")
             item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-            self.table.setItem(row, 3, item_cur_run)
+            self.table.setItem(row, 4, item_cur_run)
 
             item_last_start = SortableTableWidgetItem(app.last_start_at)
             item_last_start.setData(Qt.UserRole, app.last_start_at_ts or 0)
-            self.table.setItem(row, 4, item_last_start)
+            self.table.setItem(row, 5, item_last_start)
 
             item_first_seen = SortableTableWidgetItem(app.first_seen_at)
             item_first_seen.setData(Qt.UserRole, app.first_seen_at_ts or 0)
-            self.table.setItem(row, 5, item_first_seen)
+            self.table.setItem(row, 6, item_first_seen)
 
             item_focus = SortableTableWidgetItem(format_seconds_to_text(app.total_focus_seconds))
             item_focus.setData(Qt.UserRole, app.total_focus_seconds)
             item_focus.setData(_BASE_TOTAL_ROLE, app.total_focus_seconds)
-            self.table.setItem(row, 6, item_focus)
+            self.table.setItem(row, 7, item_focus)
 
             item_life = SortableTableWidgetItem(format_seconds_to_text(app.total_lifetime_seconds))
             item_life.setData(Qt.UserRole, app.total_lifetime_seconds)
             item_life.setData(_BASE_TOTAL_ROLE, app.total_lifetime_seconds)
-            self.table.setItem(row, 7, item_life)
+            self.table.setItem(row, 8, item_life)
 
         self._restore_sort()
         self._adjust_name_column_width()
@@ -239,7 +287,7 @@ class AppTableManager(QObject):
     def update_status(self, status_data: dict):
         self.table.setSortingEnabled(False)
         for row in range(self.table.rowCount()):
-            exe_name_item = self.table.item(row, 1)
+            exe_name_item = self.table.item(row, 2)
             if not exe_name_item:
                 continue
 
@@ -263,17 +311,17 @@ class AppTableManager(QObject):
                 )
                 item_cur_focus = SortableTableWidgetItem("-")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 2, item_cur_focus)
+                self.table.setItem(row, 3, item_cur_focus)
                 item_cur_run = SortableTableWidgetItem("-")
                 item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 3, item_cur_run)
+                self.table.setItem(row, 4, item_cur_run)
                 continue
 
             exe_path = exe_name_item.data(Qt.UserRole)
             current_status_widget = self.table.cellWidget(row, 0)
 
-            item_total_focus = self.table.item(row, 6)
-            item_total_life = self.table.item(row, 7)
+            item_total_focus = self.table.item(row, 7)
+            item_total_life = self.table.item(row, 8)
             if not item_total_focus or not item_total_life:
                 continue
 
@@ -297,11 +345,11 @@ class AppTableManager(QObject):
 
                 item_cur_focus = SortableTableWidgetItem(format_seconds_to_text(data['focus']))
                 item_cur_focus.setData(Qt.UserRole, data['focus'])
-                self.table.setItem(row, 2, item_cur_focus)
+                self.table.setItem(row, 3, item_cur_focus)
 
                 item_cur_run = SortableTableWidgetItem(format_seconds_to_text(data['runtime_seconds']))
                 item_cur_run.setData(Qt.UserRole, data['runtime_seconds'])
-                self.table.setItem(row, 3, item_cur_run)
+                self.table.setItem(row, 4, item_cur_run)
 
                 current_total_focus = base_focus + data['focus']
                 item_total_focus.setText(format_seconds_to_text(current_total_focus))
@@ -327,11 +375,11 @@ class AppTableManager(QObject):
 
                     item_cur_focus = SortableTableWidgetItem("-")
                     item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-                    self.table.setItem(row, 2, item_cur_focus)
+                    self.table.setItem(row, 3, item_cur_focus)
 
                     item_cur_run = SortableTableWidgetItem("-")
                     item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-                    self.table.setItem(row, 3, item_cur_run)
+                    self.table.setItem(row, 4, item_cur_run)
 
                     final_focus = item_total_focus.data(_BASE_TOTAL_ROLE) or base_focus
                     final_life = item_total_life.data(_BASE_TOTAL_ROLE) or base_life
@@ -345,7 +393,7 @@ class AppTableManager(QObject):
     def set_row_watched_state(self, exe_path: str, watched: bool):
         """只更新指定行的监视状态，不重建整张表。"""
         for row in range(self.table.rowCount()):
-            name_item = self.table.item(row, 1)
+            name_item = self.table.item(row, 2)
             if not name_item or name_item.data(Qt.UserRole) != exe_path:
                 continue
 
@@ -360,10 +408,10 @@ class AppTableManager(QObject):
                 )
                 item_cur_focus = SortableTableWidgetItem("-")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 2, item_cur_focus)
+                self.table.setItem(row, 3, item_cur_focus)
                 item_cur_run = SortableTableWidgetItem("-")
                 item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 3, item_cur_run)
+                self.table.setItem(row, 4, item_cur_run)
             else:
                 status_item = self.table.item(row, 0)
                 if status_item:
@@ -384,7 +432,7 @@ class AppTableManager(QObject):
         if row < 0:
             return
 
-        name_item = self.table.item(row, 1)
+        name_item = self.table.item(row, 2)
         if not name_item:
             return
 
@@ -465,7 +513,7 @@ class AppTableManager(QObject):
 
     def _refresh_color_dots(self, row: int, exe_path: str):
         """更新名称列的颜色圆点。"""
-        name_item = self.table.item(row, 1)
+        name_item = self.table.item(row, 2)
         if not name_item:
             return
         base_name = Path(name_item.text()).stem if Path(name_item.text()).suffix else name_item.text()
@@ -499,7 +547,7 @@ class AppTableManager(QObject):
         return second == QMessageBox.Yes
 
     def _get_exe_path_by_row(self, row: int) -> str:
-        item = self.table.item(row, 1)
+        item = self.table.item(row, 2)
         if item:
             return item.data(Qt.UserRole)
         return ""
@@ -522,6 +570,10 @@ class AppTableManager(QObject):
         if col is not None and order_str is not None:
             try:
                 col = int(col)
+                # 列迁移：图标列插入后，旧排序列 >= 1 的索引 +1
+                if col >= 1:
+                    col += 1
+                    self._settings.set("tableSortColumn", col)
                 if 0 <= col < self.table.columnCount():
                     order = Qt.AscendingOrder if order_str == "asc" else Qt.DescendingOrder
                     SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
@@ -531,7 +583,7 @@ class AppTableManager(QObject):
         self.table.setSortingEnabled(True)
 
     def _adjust_name_column_width(self):
-        name_col = 1
+        name_col = 2
 
         cell_fm = QFontMetrics(self.table.font())
         header_fm = QFontMetrics(self.table.horizontalHeader().font())
@@ -540,7 +592,7 @@ class AppTableManager(QObject):
         header_text = header_item.text() if header_item else "应用名称"
 
         header_text_width = header_fm.horizontalAdvance(header_text)
-        header_min_width = header_text_width + 60
+        header_min_width = header_text_width + int(round(60 * self._zoom_factor))
 
         max_content_width = 0
 
@@ -550,7 +602,7 @@ class AppTableManager(QObject):
                 text_width = cell_fm.horizontalAdvance(item.text())
                 max_content_width = max(max_content_width, text_width)
 
-        content_width = max_content_width + 40
+        content_width = max_content_width + int(round(40 * self._zoom_factor))
 
         final_width = max(header_min_width, content_width)
 
@@ -562,4 +614,4 @@ class AppTableManager(QObject):
             total += self.table.columnWidth(col)
         if self.table.verticalScrollBar().isVisible():
             total += self.table.verticalScrollBar().width()
-        self.table_width_hint.emit(total+90)
+        self.table_width_hint.emit(total + int(round(90 * self._zoom_factor)))
