@@ -141,7 +141,7 @@ class AppTableManager(QObject):
         self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
 
         if live_preview:
-            self._adjust_name_column_width()
+            self._refresh_zoom_only()
         elif self._last_apps:
             self.refresh(self._last_apps, skip_width_hint=True)
         else:
@@ -607,6 +607,7 @@ class AppTableManager(QObject):
         final_width = max(header_min_width, content_width)
 
         self.table.setColumnWidth(name_col, final_width)
+        self.table.resizeColumnToContents(0)
 
     def _emit_table_width_hint(self):   
         total = 0

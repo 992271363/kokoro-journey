@@ -379,7 +379,7 @@ class Mywindow(QMainWindow):
         """分组按钮点击，切换筛选。"""
         gid = btn.property("group_id")
         self._current_group_id = gid
-        self._refresh_table()
+        self._refresh_table(skip_width_hint=True)
 
     def _on_group_context_menu(self, pos):
         menu = QMenu(self)
@@ -394,9 +394,9 @@ class Mywindow(QMainWindow):
             self._rebuild_group_buttons()
             self._refresh_table()
 
-    def _refresh_table(self):
+    def _refresh_table(self, skip_width_hint=False):
         apps = AppRepository.get_all_apps(group_filter=self._current_group_id)
-        self.table_manager.refresh(apps)
+        self.table_manager.refresh(apps, skip_width_hint=skip_width_hint)
         self._apply_table_search()
 
     def _apply_table_search(self):

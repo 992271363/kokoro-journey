@@ -28,10 +28,6 @@ class GroupDialog(QDialog):
         header.setStyleSheet("font-size: 15px;")
         layout.addWidget(header)
 
-        hint = QLabel("「默认」分组包含所有应用，不可删除。")
-        hint.setStyleSheet("color: #64748b; font-size: 12px;")
-        layout.addWidget(hint)
-
         # 分组列表
         self.list_widget = QListWidget()
         layout.addWidget(self.list_widget)
@@ -81,9 +77,6 @@ class GroupDialog(QDialog):
         for gid, gname in groups:
             item = QListWidgetItem(gname)
             item.setData(Qt.UserRole, gid)
-            if gname == "默认":
-                item.setForeground(Qt.gray)
-                item.setToolTip("默认分组不可删除")
             self.list_widget.addItem(item)
 
     def _on_add(self):
@@ -110,10 +103,6 @@ class GroupDialog(QDialog):
             return
         new_name = new_name.strip()
 
-        if new_name == "默认":
-            QMessageBox.warning(self, "提示", "「默认」名称不可使用。")
-            return
-
         AppRepository.rename_group(gid, new_name)
         self._refresh_list()
 
@@ -123,10 +112,6 @@ class GroupDialog(QDialog):
             return
         gid = item.data(Qt.UserRole)
         gname = item.text()
-
-        if gname == "默认":
-            QMessageBox.warning(self, "提示", "「默认」分组不可删除。")
-            return
 
         reply = QMessageBox.question(
             self,

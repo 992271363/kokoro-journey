@@ -50,10 +50,6 @@ def add_or_get_watched_app(db: Session, executable_path: str, executable_name: s
     )
     db.add(summary)
 
-    default_group = db.query(AppGroup).filter_by(name="默认").first()
-    if default_group:
-        new_watched_app.groups.append(default_group)
-
     db.commit()
     db.refresh(new_watched_app)
     return new_watched_app

@@ -100,7 +100,7 @@ class AppRepository:
         db = SessionLocal()
         try:
             group = db.query(AppGroup).filter_by(id=group_id).first()
-            if not group or group.name == "默认":
+            if not group:
                 return False
             db.query(AppGroupAssociation).filter_by(group_id=group_id).delete()
             db.delete(group)
