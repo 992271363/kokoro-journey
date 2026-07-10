@@ -1,6 +1,6 @@
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QObject, QCollator, QSize
-from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont
+from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMenu, QMessageBox, QWidget, QHBoxLayout, QLabel
@@ -135,28 +135,15 @@ class AppTableManager(QObject):
         self.table.setFont(font)
         self.table.horizontalHeader().setFont(font)
 
+        row_h = QFontMetrics(font).height() + 12
         icon_sz = max(8, int(round(20 * factor)))
+        icon_sz = min(icon_sz, row_h - 4)
         self.table.setIconSize(QSize(icon_sz, icon_sz))
 
         self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
 
-        if live_preview:
-            self._refresh_zoom_only()
-        elif self._last_apps:
+        if self._last_apps:
             self.refresh(self._last_apps, skip_width_hint=True)
-        else:
-            self._refresh_zoom_only()
-
-    def _refresh_zoom_only(self):
-        for row in range(self.table.rowCount()):
-            self.table.setCellWidget(
-                row, 0,
-                self._create_status_label(
-                    self.table.cellWidget(row, 0).property("status_color") or "#cbd5e0",
-                    self.table.cellWidget(row, 0).property("status_text") or ""
-                )
-            )
-        self._adjust_name_column_width()
 
     def _setup_table(self):
         columns = ["状态", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
@@ -191,23 +178,20 @@ class AppTableManager(QObject):
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._save_sort_preference)
         
 
-    def _create_status_label(self, color_hex: str, tooltip: str = ""):
-        container = QWidget()
-        container.setStyleSheet("background: transparent;")
-        container.setToolTip(tooltip)
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignCenter)
-        dot = QLabel()
-        dot_size = max(6, int(round(14 * self._zoom_factor)))
-        dot.setFixedSize(dot_size, dot_size)
-        radius = max(3, dot_size // 2)
-        dot.setStyleSheet(f"background-color: {color_hex}; border-radius: {radius}px;")
-        dot.setToolTip(tooltip)
-        layout.addWidget(dot)
-        container.setProperty("status_color", color_hex)
-        container.setProperty("status_text", tooltip)
-        return container
+    def _create_status_icon(self, color_hex: str) -> QIcon:
+        canvas = max(self.table.iconSize().width(), 8)
+        dot = min(canvas, 24)
+        pixmap = QPixmap(canvas, canvas)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QColor(color_hex))
+        painter.setPen(Qt.NoPen)
+        x = (canvas - dot) // 2
+        y = (canvas - dot) // 2
+        painter.drawEllipse(x, y, dot, dot)
+        painter.end()
+        return QIcon(pixmap)
 
     def refresh(self, apps: List[AppInfo], skip_width_hint: bool = False):
         self._last_apps = apps
@@ -233,8 +217,9 @@ class AppTableManager(QObject):
 
             status_item = SortableTableWidgetItem("")
             status_item.setData(Qt.UserRole, status_value)
+            status_item.setIcon(self._create_status_icon(status_color))
+            status_item.setToolTip(status_text)
             self.table.setItem(row, 0, status_item)
-            self.table.setCellWidget(row, 0, self._create_status_label(status_color, status_text))
 
             # 图标列
             icon_item = SortableTableWidgetItem("")
@@ -293,21 +278,21 @@ class AppTableManager(QObject):
             is_path_exist = exe_name_item.data(_IS_PATH_EXIST_ROLE)
             is_watched = exe_name_item.data(_IS_WATCHED_ROLE)
 
-            # 路径不存在：保持黄色，跳过
+            # 路径不存在：保持红色，跳过
             if is_path_exist is False:
-                self.table.setCellWidget(
-                    row, 0, self._create_status_label("#ef4444", "路径不存在")
-                )
+                status_item = self.table.item(row, 0)
+                if status_item:
+                    status_item.setIcon(self._create_status_icon("#ef4444"))
+                    status_item.setToolTip("路径不存在")
                 continue
 
-            # 未监视：保持浅灰，跳过
+            # 未监视：保持深灰，跳过
             if is_watched is False:
                 status_item = self.table.item(row, 0)
                 if status_item:
                     status_item.setData(Qt.UserRole, -1)
-                self.table.setCellWidget(
-                    row, 0, self._create_status_label("#334155", "未监视")
-                )
+                    status_item.setIcon(self._create_status_icon("#334155"))
+                    status_item.setToolTip("未监视")
                 item_cur_focus = SortableTableWidgetItem("-")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
                 self.table.setItem(row, 3, item_cur_focus)
@@ -317,7 +302,6 @@ class AppTableManager(QObject):
                 continue
 
             exe_path = exe_name_item.data(Qt.UserRole)
-            current_status_widget = self.table.cellWidget(row, 0)
 
             item_total_focus = self.table.item(row, 7)
             item_total_life = self.table.item(row, 8)
@@ -340,7 +324,7 @@ class AppTableManager(QObject):
                 status_item = self.table.item(row, 0)
                 if status_item:
                     status_item.setData(Qt.UserRole, status_val)
-                self.table.setCellWidget(row, 0, self._create_status_label(status_color))
+                    status_item.setIcon(self._create_status_icon(status_color))
 
                 item_cur_focus = SortableTableWidgetItem(format_seconds_to_text(data['focus']))
                 item_cur_focus.setData(Qt.UserRole, data['focus'])
@@ -358,7 +342,8 @@ class AppTableManager(QObject):
                 item_total_life.setText(format_seconds_to_text(current_total_life))
                 item_total_life.setData(Qt.UserRole, current_total_life)
             else:
-                if current_status_widget and current_status_widget.property("status_color") != "#cbd5e0":
+                status_item = self.table.item(row, 0)
+                if status_item and status_item.data(Qt.UserRole) > 0:
                     final_focus = item_total_focus.data(Qt.UserRole)
                     final_life = item_total_life.data(Qt.UserRole)
 
@@ -367,10 +352,8 @@ class AppTableManager(QObject):
                     if final_life is not None:
                         item_total_life.setData(_BASE_TOTAL_ROLE, final_life)
 
-                    status_item = self.table.item(row, 0)
-                    if status_item:
-                        status_item.setData(Qt.UserRole, 0)
-                    self.table.setCellWidget(row, 0, self._create_status_label("#cbd5e0"))
+                    status_item.setData(Qt.UserRole, 0)
+                    status_item.setIcon(self._create_status_icon("#cbd5e0"))
 
                     item_cur_focus = SortableTableWidgetItem("-")
                     item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
@@ -402,9 +385,8 @@ class AppTableManager(QObject):
                 status_item = self.table.item(row, 0)
                 if status_item:
                     status_item.setData(Qt.UserRole, -1)
-                self.table.setCellWidget(
-                    row, 0, self._create_status_label("#334155", "未监视")
-                )
+                    status_item.setIcon(self._create_status_icon("#334155"))
+                    status_item.setToolTip("未监视")
                 item_cur_focus = SortableTableWidgetItem("-")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
                 self.table.setItem(row, 3, item_cur_focus)
@@ -415,9 +397,8 @@ class AppTableManager(QObject):
                 status_item = self.table.item(row, 0)
                 if status_item:
                     status_item.setData(Qt.UserRole, 0)
-                self.table.setCellWidget(
-                    row, 0, self._create_status_label("#cbd5e0", "未运行")
-                )
+                    status_item.setIcon(self._create_status_icon("#cbd5e0"))
+                    status_item.setToolTip("未运行")
             break
 
     def _on_double_clicked(self, index):
@@ -607,7 +588,6 @@ class AppTableManager(QObject):
         final_width = max(header_min_width, content_width)
 
         self.table.setColumnWidth(name_col, final_width)
-        self.table.resizeColumnToContents(0)
 
     def _emit_table_width_hint(self):   
         total = 0
