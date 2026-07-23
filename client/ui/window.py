@@ -134,6 +134,9 @@ class Mywindow(QMainWindow):
             self._base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         base = self._base
 
+        self._app_icon = QIcon(os.path.join(base, "icons", "icon.ico"))
+        self.setWindowIcon(self._app_icon)
+
         self.btn_monitor_toggle = QPushButton("暂停监控")
         self.btn_monitor_toggle.setToolTip("暂停/恢复全局监控")
         self.btn_monitor_toggle.setFixedHeight(48)
@@ -302,8 +305,7 @@ class Mywindow(QMainWindow):
             self.statusBar().showMessage("监控已暂停")
 
     def _setup_tray_icon(self):
-        default_icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
-        self._tray_icon = QSystemTrayIcon(default_icon, self)
+        self._tray_icon = QSystemTrayIcon(self._app_icon, self)
 
         tray_menu = QMenu()
         action_show = tray_menu.addAction("显示主窗口")
