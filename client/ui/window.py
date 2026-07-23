@@ -32,7 +32,7 @@ class _NoContextToolBar(QToolBar):
 from ui.dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
 from ui.login import LoginDialog
 from ui.stats import StatsDialog
-from core.sync import get_and_prepare_sync_data, mark_activities_as_synced
+from core.sync import get_and_prepare_sync_data, mark_sessions_as_synced
 from core.api import send_data_to_api
 from core.monitor import retry_failed_sessions, get_failed_queue_count
 
@@ -606,9 +606,9 @@ class Mywindow(QMainWindow):
     def run_immediate_sync(self):
         if not self.token:
             return
-        data, marks = get_and_prepare_sync_data()
+        data, sessions = get_and_prepare_sync_data()
         if data and send_data_to_api(data, "/sync/sessions/", self.token):
-            mark_activities_as_synced(marks)
+            mark_sessions_as_synced(sessions)
             self.update_status_bar("同步成功")
 
     def _on_session_save_failed(self, exe_name: str, error: str):

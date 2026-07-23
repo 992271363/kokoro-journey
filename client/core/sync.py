@@ -2,52 +2,53 @@
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, Qt
 from sqlalchemy.orm import joinedload, Session
 from db.database import SessionLocal
-from db.models import FocusActivity, ProcessSession, AppUsageSummary
+from db.models import ProcessSession, AppUsageSummary
 from core.api import send_data_to_api
 from typing import List
 
 def get_and_prepare_sync_data():
     db = SessionLocal()
     try:
-        activities_to_sync = db.query(FocusActivity).options(
-            joinedload(FocusActivity.session).joinedload(ProcessSession.summary).joinedload(AppUsageSummary.application)
-        ).filter(FocusActivity.synced == False).all()
-        if not activities_to_sync:
-            return [], []
-        sessions_map = {}
-        for activity in activities_to_sync:
-            session_id = activity.session_id
-            if session_id not in sessions_map:
-                sessions_map[session_id] = {
-                    "process_name": activity.session.process_name,
-                    "executable_path": activity.session.summary.application.executable_path,
-                    "session_start_time": activity.session.session_start_time.isoformat(),
-                    "session_end_time": activity.session.session_end_time.isoformat(),
-                    "total_lifetime_seconds": activity.session.total_lifetime_seconds,
-                    "total_focus_seconds": activity.session.total_focus_seconds,
-                    "activities": []
-                }
+        sessions_to_sync = db.query(ProcessSession).options(
+            joinedload(ProcessSession.activities),
+            joinedload(ProcessSession.summary).joinedload(AppUsageSummary.application)
+        ).filter(ProcessSession.synced == False).all()
 
-            sessions_map[session_id]["activities"].append({
-                "window_title": activity.window_title,
-                "focus_duration_seconds": activity.focus_duration_seconds
+        if not sessions_to_sync:
+            return [], []
+
+        data_to_send = []
+        for session in sessions_to_sync:
+            activities_data = []
+            for activity in session.activities:
+                activities_data.append({
+                    "window_title": activity.window_title,
+                    "focus_duration_seconds": activity.focus_duration_seconds
+                })
+            data_to_send.append({
+                "process_name": session.process_name,
+                "executable_path": session.summary.application.executable_path,
+                "session_start_time": session.session_start_time.isoformat(),
+                "session_end_time": session.session_end_time.isoformat(),
+                "total_lifetime_seconds": session.total_lifetime_seconds,
+                "total_focus_seconds": session.total_focus_seconds,
+                "activities": activities_data
             })
 
-        data_to_send = list(sessions_map.values())
         print(f"[Sync Util] 发现 {len(data_to_send)} 个会话包含未同步数据，准备上传...")
-        return data_to_send, activities_to_sync
+        return data_to_send, sessions_to_sync
     finally:
         db.close()
 
-def mark_activities_as_synced(activities: List[FocusActivity]):
-    if not activities:
+def mark_sessions_as_synced(sessions: List[ProcessSession]):
+    if not sessions:
         return
     db = SessionLocal()
     try:
-        activity_ids = [activity.id for activity in activities]
-        db.query(FocusActivity).filter(FocusActivity.id.in_(activity_ids)).update({"synced": True})
+        session_ids = [s.id for s in sessions]
+        db.query(ProcessSession).filter(ProcessSession.id.in_(session_ids)).update({"synced": True})
         db.commit()
-        print(f"[Sync Util] 已将 {len(activity_ids)} 条焦点活动记录标记为已同步。")
+        print(f"[Sync Util] 已将 {len(session_ids)} 个会话标记为已同步。")
     except Exception as e:
         print(f"[Sync Util] 标记同步状态时出错: {e}")
         db.rollback()
@@ -90,14 +91,14 @@ class ApiSyncWorker(QObject):
             self.status_updated.emit("未登录，跳过后台同步。")
             return
 
-        data_to_send, activities_to_mark = get_and_prepare_sync_data()
+        data_to_send, sessions_to_mark = get_and_prepare_sync_data()
         if not data_to_send:
             self.status_updated.emit("后台检查：数据已是最新。")
         else:
             self.status_updated.emit(f"后台发现 {len(data_to_send)} 个新会话，上传中...")
             success = send_data_to_api(data_to_send, endpoint="/sync/sessions/", token=token)
             if success:
-                mark_activities_as_synced(activities_to_mark)
+                mark_sessions_as_synced(sessions_to_mark)
                 self.status_updated.emit(f"后台成功同步 {len(data_to_send)} 个会话。")
             else:
                 self.status_updated.emit("后台同步失败，将在下一周期重试。")
@@ -131,7 +132,7 @@ class ApiSyncWorker(QObject):
         self.finished.emit()
 
 from PySide6.QtCore import QObject, Signal, QThread, Qt
-from core.sync import ApiSyncWorker, get_and_prepare_sync_data, mark_activities_as_synced
+from core.sync import ApiSyncWorker, get_and_prepare_sync_data, mark_sessions_as_synced
 from util.shutdown import wait_for_thread
 from typing import Callable, Optional
 
