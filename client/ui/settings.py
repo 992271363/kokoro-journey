@@ -239,6 +239,18 @@ class SettingsDialog(QDialog):
         self.spin_sync_interval.setToolTip("待实现")
         general_form.addRow("同步间隔:", self.spin_sync_interval)
 
+        self.spin_idle_threshold = QSpinBox()
+        self.spin_idle_threshold.setRange(0, 30)
+        self.spin_idle_threshold.setSuffix(" 分钟")
+        self.spin_idle_threshold.setValue(int(Settings().get("idleThresholdSeconds", 300) // 60))
+        self.spin_idle_threshold.setToolTip("无键鼠操作超过此时长视为暂离，暂停专注计时。设为 0 禁用。")
+        general_form.addRow("暂离状态所需时长:", self.spin_idle_threshold)
+
+        self.check_idle_tip = QCheckBox("达到暂离时长时弹出提示")
+        self.check_idle_tip.setChecked(bool(Settings().get("idleTipEnabled", False)))
+        self.check_idle_tip.setToolTip("无操作达到上方时长时，弹出系统托盘提示。")
+        general_form.addRow(self.check_idle_tip)
+
         layout.addWidget(general_group)
 
         # --- 显示 ---
@@ -460,6 +472,9 @@ class SettingsDialog(QDialog):
             Settings().set("closeToTray", None)
         else:
             Settings().set("closeToTray", close_value)
+
+        Settings().set("idleThresholdSeconds", self.spin_idle_threshold.value() * 60)
+        Settings().set("idleTipEnabled", self.check_idle_tip.isChecked())
 
         if autostart.is_available():
             if self.check_autostart.isChecked():

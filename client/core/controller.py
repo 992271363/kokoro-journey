@@ -9,6 +9,8 @@ class MonitorController(QObject):
     status_updated = Signal(dict)
     session_finished = Signal(str, int)
     session_save_failed = Signal(str, str)
+    user_went_idle = Signal()
+    user_came_back = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,6 +28,8 @@ class MonitorController(QObject):
         self._worker.status_updated.connect(self.status_updated)
         self._worker.session_finished.connect(self.session_finished)
         self._worker.session_save_failed.connect(self.session_save_failed)
+        self._worker.user_went_idle.connect(self.user_went_idle)
+        self._worker.user_came_back.connect(self.user_came_back)
         self._thread.finished.connect(self._on_thread_finished)
         self._thread.start()
 

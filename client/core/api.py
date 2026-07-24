@@ -1,11 +1,16 @@
 import os
+import sys
 from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+if getattr(sys, "frozen", False):
+    _env_path = Path(sys.executable).resolve().parent / ".env"
+else:
+    _env_path = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(_env_path)
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1").rstrip('/')
 API_URL = f"{BASE_URL}/api"
 

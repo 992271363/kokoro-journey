@@ -9,6 +9,8 @@ from PySide6.QtCore import QObject, Signal, QMutex, QMutexLocker
 from typing import List, Dict, TypedDict
 from util.path import normalize_exe_path
 from util.path import get_data_dir
+from util.idle import get_system_idle_seconds
+from util.config import Settings
 
 # --- 失败队列文件路径 ---
 _FAILED_QUEUE_DIR = get_data_dir()
@@ -194,6 +196,8 @@ class GlobalMonitorWorker(QObject):
     status_updated = Signal(dict)
     session_finished = Signal(str, int)
     session_save_failed = Signal(str, str)
+    user_went_idle = Signal()
+    user_came_back = Signal()
     finished = Signal()
 
     def __init__(self, watched_apps_info: List[tuple]):
@@ -210,6 +214,7 @@ class GlobalMonitorWorker(QObject):
         self._mutex = QMutex()
         self._active_sessions: Dict[str, ActiveSession] = {}
         self._pid_to_path: Dict[int, str] = {}
+        self._was_user_present = True
 
     def update_watch_list(self, new_list: List[tuple]):
         """
@@ -309,6 +314,17 @@ class GlobalMonitorWorker(QObject):
         if not self._running:
             return
         try:
+            # 锁外：检测用户是否暂离（无键鼠输入超过阈值）
+            threshold = Settings().get("idleThresholdSeconds", 300)
+            user_present = True
+            if threshold and threshold > 0:
+                user_present = get_system_idle_seconds() <= threshold
+            # 检测状态变化：在位 → 暂离 / 暂离 → 在位
+            if self._was_user_present and not user_present:
+                self.user_went_idle.emit()
+            elif not self._was_user_present and user_present:
+                self.user_came_back.emit()
+            self._was_user_present = user_present
             # 锁外：获取前台窗口信息（win32 调用）
             fg_window = win32gui.GetForegroundWindow()
             fg_pid = None
@@ -320,6 +336,9 @@ class GlobalMonitorWorker(QObject):
             with QMutexLocker(self._mutex):
                 for session in self._active_sessions.values():
                     session.is_focused = False
+                # 用户暂离时不累加专注时间
+                if not user_present:
+                    return
                 if fg_pid is not None:
                     path = self._pid_to_path.get(fg_pid)
                     if path and path in self._active_sessions:

@@ -129,12 +129,13 @@ class Mywindow(QMainWindow):
         """)
 
         if getattr(sys, 'frozen', False):
-            self._base = sys._MEIPASS
+            self._base = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
         else:
             self._base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         base = self._base
 
         self._app_icon = QIcon(os.path.join(base, "icons", "icon.ico"))
+        self._idle_icon = QIcon(os.path.join(base, "icons", "tray_idle.ico"))
         self.setWindowIcon(self._app_icon)
 
         self.btn_monitor_toggle = QPushButton("暂停监控")
@@ -244,6 +245,8 @@ class Mywindow(QMainWindow):
         self.monitor_controller.status_updated.connect(self.table_manager.update_status)
         self.monitor_controller.session_finished.connect(self._refresh_table)
         self.monitor_controller.session_save_failed.connect(self._on_session_save_failed)
+        self.monitor_controller.user_went_idle.connect(self._on_user_went_idle)
+        self.monitor_controller.user_came_back.connect(self._on_user_came_back)
 
         self.sync_controller = SyncController(token_provider=lambda: self.token, parent=self)
         self.sync_controller.status_updated.connect(self.update_status_bar)
@@ -618,6 +621,21 @@ class Mywindow(QMainWindow):
         self.statusBar().showMessage(
             f"⚠ 保存失败: {exe_name} — {error}（队列中 {count} 条待重试）", 8000
         )
+
+    def _on_user_went_idle(self):
+        if hasattr(self, "_tray_icon"):
+            self._tray_icon.setIcon(self._idle_icon)
+            if self._settings.get("idleTipEnabled", False):
+                self._tray_icon.showMessage(
+                    "暂离提示",
+                    "检测到您已暂离，已暂停专注计时。",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    5000,
+                )
+
+    def _on_user_came_back(self):
+        if hasattr(self, "_tray_icon"):
+            self._tray_icon.setIcon(self._app_icon)
 
     def _retry_failed_sessions(self):
         success, remaining = retry_failed_sessions()
