@@ -182,3 +182,4 @@ def record_process_session(
     except Exception as e:
         print(f"[Tracking Service] 数据库提交失败: {e}")
         db.rollback()
+        raise

@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, Signal, QObject, QCollator, QSize
 from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMenu, QMessageBox, QWidget, QHBoxLayout, QLabel
+    QMenu, QMessageBox, QWidget, QHBoxLayout, QLabel, QApplication
 )
 
 from typing import List
@@ -32,6 +32,7 @@ class StyledHeaderView(QHeaderView):
         self.setSectionsClickable(True)
         self.setSortIndicatorShown(True)
         self.setMouseTracking(True)
+        self._drag_logical = -1
 
     def _is_on_resizable_edge(self, pos):
         col = self.logicalIndexAt(pos)
@@ -74,12 +75,26 @@ class StyledHeaderView(QHeaderView):
                 painter.drawPath(path)
             painter.restore()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.sectionsMovable():
+            self._drag_logical = self.logicalIndexAt(event.pos())
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event):
-        if self._is_on_resizable_edge(event.pos()):
-            self.setCursor(Qt.SplitHCursor)
+        if self._drag_logical >= 0 and (event.buttons() & Qt.LeftButton):
+            target = self.logicalIndexAt(event.pos())
+            if target >= 0 and target != self._drag_logical:
+                self.moveSection(self.visualIndex(self._drag_logical), self.visualIndex(target))
         else:
-            self.setCursor(Qt.ArrowCursor)
+            if self._is_on_resizable_edge(event.pos()):
+                self.setCursor(Qt.SplitHCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
         super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_logical = -1
+        super().mouseReleaseEvent(event)
 
     def leaveEvent(self, event):
         self.setCursor(Qt.ArrowCursor)
@@ -176,7 +191,11 @@ class AppTableManager(QObject):
         self.table.setSortingEnabled(True)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._on_sort_indicator_changed)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._save_sort_preference)
-        
+
+        header.setSectionsMovable(True)
+        header.setDragEnabled(True)
+        header.sectionMoved.connect(self._save_column_order)
+        self._restore_column_order()
 
     def _create_status_icon(self, color_hex: str) -> QIcon:
         canvas = max(self.table.iconSize().width(), 8)
@@ -596,3 +615,21 @@ class AppTableManager(QObject):
         if self.table.verticalScrollBar().isVisible():
             total += self.table.verticalScrollBar().width()
         self.table_width_hint.emit(total + int(round(90 * self._zoom_factor)))
+
+    def _save_column_order(self):
+        if not self._settings:
+            return
+        header = self.table.horizontalHeader()
+        order = [header.logicalIndex(v) for v in range(header.count())]
+        self._settings.set("tableColumnOrder", order)
+
+    def _restore_column_order(self):
+        if not self._settings:
+            return
+        order = self._settings.get("tableColumnOrder")
+        if not order or len(order) != self.table.columnCount():
+            return
+        header = self.table.horizontalHeader()
+        for visual_idx, logical_idx in enumerate(order):
+            if 0 <= logical_idx < header.count():
+                header.moveSection(header.visualIndex(logical_idx), visual_idx)

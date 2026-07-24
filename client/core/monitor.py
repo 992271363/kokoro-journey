@@ -14,6 +14,7 @@ from util.path import get_data_dir
 _FAILED_QUEUE_DIR = get_data_dir()
 os.makedirs(_FAILED_QUEUE_DIR, exist_ok=True)
 _FAILED_QUEUE_PATH = os.path.join(_FAILED_QUEUE_DIR, "failed_sessions.json")
+_DEAD_QUEUE_PATH = os.path.join(_FAILED_QUEUE_DIR, "failed_sessions_dead.json")
 _MAX_RETRIES = 10
 
 
@@ -33,6 +34,31 @@ def _save_failed_queue(queue: List[dict]) -> None:
             json.dump(queue, f, ensure_ascii=False, indent=2, default=str)
     except Exception as e:
         print(f"[Failed Queue] 写入队列文件失败: {e}")
+
+
+def _load_dead_queue() -> List[dict]:
+    if not os.path.exists(_DEAD_QUEUE_PATH):
+        return []
+    try:
+        with open(_DEAD_QUEUE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_dead_queue(queue: List[dict]) -> None:
+    try:
+        with open(_DEAD_QUEUE_PATH, "w", encoding="utf-8") as f:
+            json.dump(queue, f, ensure_ascii=False, indent=2, default=str)
+    except Exception as e:
+        print(f"[Failed Queue] 写入死信文件失败: {e}")
+
+
+def _archive_to_dead_letter(item: dict) -> None:
+    dead = _load_dead_queue()
+    dead.append(item)
+    _save_dead_queue(dead)
+    print(f"[Failed Queue] 会话已归档到冷存储，当前死信数量: {len(dead)}")
 
 
 def _enqueue_failed_session(
@@ -75,14 +101,14 @@ def retry_failed_sessions() -> tuple[int, int]:
 
     for item in queue:
         if item.get("retry_count", 0) >= _MAX_RETRIES:
-            print(f"[Failed Queue] 跳过已达最大重试次数的会话: {item['executable_name']}")
-            remaining.append(item)
+            print(f"[Failed Queue] 会话达到最大重试次数，归档到冷存储: {item['executable_name']}")
+            _archive_to_dead_letter(item)
             continue
 
         item["retry_count"] = item.get("retry_count", 0) + 1
 
+        db = SessionLocal()
         try:
-            db = SessionLocal()
             record_process_session(
                 db=db,
                 executable_path=item["executable_path"],
@@ -91,14 +117,16 @@ def retry_failed_sessions() -> tuple[int, int]:
                 end_time=datetime.datetime.fromisoformat(item["end_time"]),
                 focus_details=item["focus_details"],
             )
-            db.close()
             success_count += 1
             print(f"[Failed Queue] 重试成功: {item['executable_name']}")
         except Exception as e:
+            db.rollback()
             item["last_error"] = str(e)
             item["failed_at"] = datetime.datetime.now().isoformat()
             remaining.append(item)
             print(f"[Failed Queue] 重试失败 ({item['retry_count']}/{_MAX_RETRIES}): {item['executable_name']} - {e}")
+        finally:
+            db.close()
 
     _save_failed_queue(remaining)
     return success_count, len(remaining)
@@ -106,6 +134,25 @@ def retry_failed_sessions() -> tuple[int, int]:
 
 def get_failed_queue_count() -> int:
     return len(_load_failed_queue())
+
+
+def restore_dead_letter_sessions() -> int:
+    """
+    程序启动时调用：把冷存储的死信捞回主队列重新重试。
+    死信的 retry_count 会被重置为 0，然后清空冷存储文件。
+    返回捞回的会话数量。
+    """
+    dead = _load_dead_queue()
+    if not dead:
+        return 0
+    main_queue = _load_failed_queue()
+    for item in dead:
+        item["retry_count"] = 0
+        main_queue.append(item)
+    _save_failed_queue(main_queue)
+    _save_dead_queue([])
+    print(f"[Failed Queue] 已从冷存储捞回 {len(dead)} 条死信会话到主队列")
+    return len(dead)
 
 
 # --- 基础类型 ---

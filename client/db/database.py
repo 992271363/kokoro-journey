@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker
-from db.models import Base, AppGroup, AppGroupAssociation
+from db.models import Base
 from util.path import get_data_dir
 
 data_dir = get_data_dir()
@@ -36,19 +36,6 @@ def create_db_and_tables():
             conn.commit()
         except Exception:
             pass
-
-    Session = sessionmaker(bind=engine)
-    db = Session()
-    try:
-        default_group = db.query(AppGroup).filter_by(name="默认").first()
-        if default_group:
-            db.query(AppGroupAssociation).filter_by(group_id=default_group.id).delete()
-            db.delete(default_group)
-            db.commit()
-    except Exception:
-        db.rollback()
-    finally:
-        db.close()
 
 
 def delete_database():
