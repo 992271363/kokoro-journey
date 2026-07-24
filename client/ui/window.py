@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from db.repository import AppRepository
 from ui.table import AppTableManager
 from core.controller import MonitorController
-from core.sync import SyncController
+from core.sync_controller import SyncController
 from util.config import Settings
 from ui.settings import CloseAskDialog, SettingsDialog
 from ui.widgets import StyledSizeGrip

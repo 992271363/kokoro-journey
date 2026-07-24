@@ -236,10 +236,11 @@ class GlobalMonitorWorker(QObject):
     def pause(self):
         with QMutexLocker(self._mutex):
             self._paused = True
-            for session in list(self._active_sessions.values()):
-                self._save_session(session)
+            sessions = list(self._active_sessions.values())
             self._active_sessions.clear()
             self._pid_to_path.clear()
+        for session in sessions:
+            self._save_session(session)
 
     def resume(self):
         with QMutexLocker(self._mutex):
@@ -272,47 +273,60 @@ class GlobalMonitorWorker(QObject):
         self.finished.emit()
 
     def _check_processes_lifecycle_nonblocking(self):
-        alive_paths = set()
+        # 锁外：遍历进程（耗时），仅收集存活进程的 (pid, exe)
+        proc_list = []
         for proc in psutil.process_iter(['pid', 'name', 'exe']):
             if not self._running:
                 break
             try:
                 if not proc.info['exe']:
                     continue
-                p_name = proc.info['name']
-                p_path = proc.info['exe']
+                proc_list.append((proc.info['pid'], proc.info['exe']))
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+
+        sessions_to_save = []
+        with QMutexLocker(self._mutex):
+            alive_paths = set()
+            for p_pid, p_path in proc_list:
                 p_path_key = normalize_exe_path(p_path)
-                p_pid = proc.info['pid']
                 if p_path_key in self._target_apps:
                     matched_path, matched_name = self._target_apps[p_path_key]
                     alive_paths.add(p_path_key)
                     self._pid_to_path[p_pid] = p_path_key
                     if p_path_key not in self._active_sessions:
                         self._active_sessions[p_path_key] = ActiveSession(matched_name, matched_path, datetime.datetime.now())
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
+            for path in list(self._active_sessions.keys()):
+                if path not in alive_paths:
+                    sessions_to_save.append(self._active_sessions[path])
+                    del self._active_sessions[path]
 
-        for path in list(self._active_sessions.keys()):
-            if path not in alive_paths:
-                self._save_session(self._active_sessions[path])
-                del self._active_sessions[path]
+        # 锁外：数据库写入（耗时）
+        for session in sessions_to_save:
+            self._save_session(session)
 
     def _check_focus_nonblocking(self, delta_seconds: float):
         if not self._running:
             return
         try:
-            for session in self._active_sessions.values():
-                session.is_focused = False
+            # 锁外：获取前台窗口信息（win32 调用）
             fg_window = win32gui.GetForegroundWindow()
-            if not fg_window: return
-            _, fg_pid = win32process.GetWindowThreadProcessId(fg_window)
-            path = self._pid_to_path.get(fg_pid)
-            if path and path in self._active_sessions:
-                session = self._active_sessions[path]
-                session.is_focused = True
-                session.focus_seconds += delta_seconds
+            fg_pid = None
+            window_title = "未知窗口"
+            if fg_window:
+                _, fg_pid = win32process.GetWindowThreadProcessId(fg_window)
                 window_title = win32gui.GetWindowText(fg_window) or "未知窗口"
-                session.focus_details[window_title] = session.focus_details.get(window_title, 0.0) + delta_seconds
+            # 锁内：更新共享会话状态
+            with QMutexLocker(self._mutex):
+                for session in self._active_sessions.values():
+                    session.is_focused = False
+                if fg_pid is not None:
+                    path = self._pid_to_path.get(fg_pid)
+                    if path and path in self._active_sessions:
+                        session = self._active_sessions[path]
+                        session.is_focused = True
+                        session.focus_seconds += delta_seconds
+                        session.focus_details[window_title] = session.focus_details.get(window_title, 0.0) + delta_seconds
         except Exception:
             pass
 
@@ -347,22 +361,25 @@ class GlobalMonitorWorker(QObject):
             db.close()
 
     def _force_close_all(self):
-        for session in self._active_sessions.values():
+        with QMutexLocker(self._mutex):
+            sessions = list(self._active_sessions.values())
+            self._active_sessions.clear()
+            self._pid_to_path.clear()
+        for session in sessions:
             self._save_session(session)
-        self._active_sessions.clear()
-        self._pid_to_path.clear()
 
     def _emit_status(self):
         status_data = {}
         now = datetime.datetime.now()
-        for path, session in self._active_sessions.items():
-            runtime = int((now - session.start_time).total_seconds())
-            status_data[path] = {
-                "name": session.exe_name,
-                "pid": 0,
-                "focus": int(session.focus_seconds),
-                "runtime_seconds": runtime,
-                "start_str": session.start_time.strftime("%H:%M:%S"),
-                "is_focused": session.is_focused,
-            }
+        with QMutexLocker(self._mutex):
+            for path, session in self._active_sessions.items():
+                runtime = int((now - session.start_time).total_seconds())
+                status_data[path] = {
+                    "name": session.exe_name,
+                    "pid": 0,
+                    "focus": int(session.focus_seconds),
+                    "runtime_seconds": runtime,
+                    "start_str": session.start_time.strftime("%H:%M:%S"),
+                    "is_focused": session.is_focused,
+                }
         self.status_updated.emit(status_data)

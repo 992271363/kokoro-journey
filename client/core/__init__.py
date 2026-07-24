@@ -7,4 +7,4 @@ from .stats import (
     get_weekly_stats, get_monthly_stats, get_recent_daily_stats, get_all_daily_stats,
     get_weekly_detail, get_monthly_detail, get_daily_detail,
 )
-from .sync import SyncController
+from .sync_controller import SyncController
