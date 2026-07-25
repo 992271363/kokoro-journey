@@ -68,7 +68,7 @@ def _enqueue_failed_session(
     exe_name: str,
     start_time: datetime.datetime,
     end_time: datetime.datetime,
-    focus_details: dict,
+    focus_intervals: list,
     error: str,
 ) -> None:
     queue = _load_failed_queue()
@@ -77,7 +77,7 @@ def _enqueue_failed_session(
         "executable_name": exe_name,
         "start_time": start_time.isoformat(),
         "end_time": end_time.isoformat(),
-        "focus_details": focus_details,
+        "focus_intervals": focus_intervals,
         "retry_count": 0,
         "last_error": str(error),
         "failed_at": datetime.datetime.now().isoformat(),
@@ -111,13 +111,26 @@ def retry_failed_sessions() -> tuple[int, int]:
 
         db = SessionLocal()
         try:
+            focus_intervals = item.get("focus_intervals")
+            if focus_intervals is None:
+                # 兼容旧格式：focus_details 字典 {标题: 秒数}，无起止时间
+                focus_intervals = [
+                    {"window_title": title, "focus_start_time": None, "focus_end_time": None, "focus_duration_seconds": int(seconds)}
+                    for title, seconds in item.get("focus_details", {}).items()
+                    if int(seconds) > 0
+                ]
+            else:
+                # 新格式：把序列化的 ISO 字符串转回 datetime
+                for iv in focus_intervals:
+                    iv["focus_start_time"] = datetime.datetime.fromisoformat(iv["focus_start_time"]) if iv.get("focus_start_time") else None
+                    iv["focus_end_time"] = datetime.datetime.fromisoformat(iv["focus_end_time"]) if iv.get("focus_end_time") else None
             record_process_session(
                 db=db,
                 executable_path=item["executable_path"],
                 executable_name=item["executable_name"],
                 start_time=datetime.datetime.fromisoformat(item["start_time"]),
                 end_time=datetime.datetime.fromisoformat(item["end_time"]),
-                focus_details=item["focus_details"],
+                focus_intervals=focus_intervals,
             )
             success_count += 1
             print(f"[Failed Queue] 重试成功: {item['executable_name']}")
@@ -189,7 +202,9 @@ class ActiveSession:
         self.exe_path = exe_path
         self.start_time = start_time
         self.focus_seconds = 0.0
-        self.focus_details = {}
+        self.focus_intervals = []
+        self._current_focus_title = None
+        self._current_focus_start = None
         self.is_focused = False
 
 class GlobalMonitorWorker(QObject):
@@ -333,21 +348,47 @@ class GlobalMonitorWorker(QObject):
                 _, fg_pid = win32process.GetWindowThreadProcessId(fg_window)
                 window_title = win32gui.GetWindowText(fg_window) or "未知窗口"
             # 锁内：更新共享会话状态
+            now = datetime.datetime.now()
             with QMutexLocker(self._mutex):
                 for session in self._active_sessions.values():
                     session.is_focused = False
-                # 用户暂离时不累加专注时间
+                # 用户暂离时不累加专注时间，并关闭所有正在进行的焦点区间
                 if not user_present:
+                    for session in self._active_sessions.values():
+                        self._close_focus_interval(session, now)
                     return
+                focused_session = None
                 if fg_pid is not None:
                     path = self._pid_to_path.get(fg_pid)
                     if path and path in self._active_sessions:
-                        session = self._active_sessions[path]
-                        session.is_focused = True
-                        session.focus_seconds += delta_seconds
-                        session.focus_details[window_title] = session.focus_details.get(window_title, 0.0) + delta_seconds
+                        focused_session = self._active_sessions[path]
+                # 失去焦点的会话关闭其焦点区间
+                for session in self._active_sessions.values():
+                    if session is not focused_session:
+                        self._close_focus_interval(session, now)
+                if focused_session is not None:
+                    focused_session.is_focused = True
+                    focused_session.focus_seconds += delta_seconds
+                    # 焦点窗口标题变化时，关闭旧区间并开启新区间
+                    if focused_session._current_focus_title != window_title:
+                        self._close_focus_interval(focused_session, now)
+                        focused_session._current_focus_title = window_title
+                        focused_session._current_focus_start = now
         except Exception:
             pass
+
+    def _close_focus_interval(self, session: ActiveSession, now: datetime.datetime):
+        if session._current_focus_title is not None and session._current_focus_start is not None:
+            duration = (now - session._current_focus_start).total_seconds()
+            if duration > 0:
+                session.focus_intervals.append({
+                    "window_title": session._current_focus_title,
+                    "focus_start_time": session._current_focus_start,
+                    "focus_end_time": now,
+                    "focus_duration_seconds": round(duration),
+                })
+            session._current_focus_title = None
+            session._current_focus_start = None
 
     def _save_session(self, session: ActiveSession):
         from db.database import SessionLocal
@@ -361,7 +402,7 @@ class GlobalMonitorWorker(QObject):
                                    executable_name=session.exe_name,
                                    start_time=session.start_time,
                                    end_time=end_time,
-                                   focus_details=session.focus_details)
+                                   focus_intervals=session.focus_intervals)
             self.session_finished.emit(session.exe_name, int((end_time - session.start_time).total_seconds()))
         except Exception as e:
             # 不再静默吞掉：写入文件队列，并通知 UI
@@ -371,7 +412,7 @@ class GlobalMonitorWorker(QObject):
                 session.exe_name,
                 session.start_time,
                 end_time,
-                session.focus_details,
+                session.focus_intervals,
                 str(e),
             )
             self.session_save_failed.emit(session.exe_name, str(e))

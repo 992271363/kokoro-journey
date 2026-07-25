@@ -17,9 +17,9 @@ def ensure_aware_dt(dt: datetime) -> datetime:
     return dt
 
 # 初始化数据库表
-models.Base.metadata.create_all(bind=database.engine) 
+models.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI()
+app = FastAPI(title="Desktop Activity System API")
 app.include_router(dashboard.router)
 logger.info("后端 API 已启动。")
 
@@ -36,20 +36,34 @@ def sync_sessions_from_client(
     try:
 
         for session_dto in sessions_data:
-            #查找或创建WatchedApplication
+            #查找或创建WatchedApplication：优先按 uid 匹配，找不到再按 executable_path 兜底（兼容旧数据）
             watched_app = db.query(models.ServerWatchedApplication).filter_by(
                 user_id=current_user.id,
-                executable_path=session_dto.executable_path
+                uid=session_dto.uid
             ).first()
-
+            if not watched_app:
+                watched_app = db.query(models.ServerWatchedApplication).filter_by(
+                    user_id=current_user.id,
+                    executable_path=session_dto.executable_path
+                ).first()
             if not watched_app:
                 watched_app = models.ServerWatchedApplication(
                     owner=current_user,
-                    executable_name=session_dto.process_name,
+                    uid=session_dto.uid,
+                    executable_name=session_dto.executable_name,
                     executable_path=session_dto.executable_path
                 )
                 db.add(watched_app)
                 db.flush()
+
+            #更新应用完整元数据
+            watched_app.uid = session_dto.uid
+            watched_app.executable_name = session_dto.executable_name
+            watched_app.executable_path = session_dto.executable_path
+            watched_app.launch_path = session_dto.launch_path
+            watched_app.is_watched = session_dto.is_watched
+            watched_app.is_process_path_different = session_dto.is_process_path_different
+            watched_app.is_path_exist = session_dto.is_path_exist
 
             #锁定并更新或创建AppUsageSummary
             summary = db.query(models.ServerAppUsageSummary).filter_by(
@@ -99,6 +113,8 @@ def sync_sessions_from_client(
                     models.ServerFocusActivity(
                         session_id=new_session.id,
                         window_title=activity_data.window_title,
+                        focus_start_time=ensure_aware_dt(activity_data.focus_start_time),
+                        focus_end_time=ensure_aware_dt(activity_data.focus_end_time),
                         focus_duration_seconds=activity_data.focus_duration_seconds
                     )
                 )
@@ -119,6 +135,48 @@ def sync_sessions_from_client(
             detail=f"同步失败，服务器内部错误: {str(e)}"
         )
 
+
+#每日统计同步接口
+@app.post("/sync/daily/", status_code=status.HTTP_201_CREATED, tags=["Sync"])
+def sync_daily_from_client(
+    daily_data: List[schemas.SyncAppDailyUsage],
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    if not daily_data:
+        return {"message": "无每日数据需要同步。"}
+    try:
+        for d in daily_data:
+            watched_app = db.query(models.ServerWatchedApplication).filter_by(
+                user_id=current_user.id,
+                uid=d.uid
+            ).first()
+            if not watched_app:
+                continue
+            existing = db.query(models.ServerAppDailyUsage).filter_by(
+                application_id=watched_app.id,
+                date=d.date
+            ).first()
+            if existing:
+                existing.lifetime_seconds = d.lifetime_seconds
+                existing.focus_seconds = d.focus_seconds
+            else:
+                db.add(models.ServerAppDailyUsage(
+                    application_id=watched_app.id,
+                    date=d.date,
+                    lifetime_seconds=d.lifetime_seconds,
+                    focus_seconds=d.focus_seconds
+                ))
+        db.commit()
+        logger.info(f"用户 {current_user.username} 成功同步了 {len(daily_data)} 条每日统计。")
+        return {"message": f"成功同步了 {len(daily_data)} 条每日统计。"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"每日统计同步失败，事务已回滚: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"每日同步失败，服务器内部错误: {str(e)}"
+        )
 
 
 # 为客户端程序提供获取令牌的API

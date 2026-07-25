@@ -98,6 +98,8 @@ def _build_export_json() -> dict:
                     for a in s.activities:
                         activities.append({
                             "window_title": a.window_title,
+                            "focus_start_time": a.focus_start_time.isoformat() if a.focus_start_time else None,
+                            "focus_end_time": a.focus_end_time.isoformat() if a.focus_end_time else None,
                             "focus_hours": round(a.focus_duration_seconds / 3600.0, 2),
                         })
                     session_list.append({
@@ -109,9 +111,13 @@ def _build_export_json() -> dict:
                     })
 
             app_list.append({
+                "uid": app.uid,
                 "name": app.executable_name,
                 "executable_path": app.executable_path,
                 "launch_path": app.launch_path,
+                "is_watched": app.is_watched,
+                "is_process_path_different": app.is_process_path_different,
+                "is_path_exist": app.is_path_exist,
                 "total_focus_hours": round(summary.total_focus_time_seconds / 3600.0, 2) if summary else 0.0,
                 "total_lifetime_hours": round(summary.total_lifetime_seconds / 3600.0, 2) if summary else 0.0,
                 "first_seen": summary.first_seen_at.strftime("%Y-%m-%d %H:%M") if summary and summary.first_seen_at else None,
@@ -122,7 +128,7 @@ def _build_export_json() -> dict:
 
         return {
             "export_info": {
-                "version": "1.0",
+                "version": "2.0",
                 "exported_at": datetime.now().isoformat(),
                 "app_count": len(app_list),
                 "total_sessions": total_sessions,
@@ -193,7 +199,13 @@ def _import_from_json(data: dict) -> None:
             launch_path = app_data.get("launch_path") or exe_path
 
             watched_app = add_or_get_watched_app(db, exe_path, exe_name)
+            # 应用完整字段（v2.0；旧格式缺省时用默认值）
+            if app_data.get("uid"):
+                watched_app.uid = app_data["uid"]
             watched_app.launch_path = launch_path
+            watched_app.is_watched = app_data.get("is_watched", True)
+            watched_app.is_process_path_different = app_data.get("is_process_path_different", False)
+            watched_app.is_path_exist = app_data.get("is_path_exist", True)
 
             summary = db.query(AppUsageSummary).filter_by(application_id=watched_app.id).first()
             if summary:
@@ -217,6 +229,32 @@ def _import_from_json(data: dict) -> None:
                     db.add(daily)
                 daily.focus_seconds = int(d.get("focus_hours", 0) * 3600)
                 daily.lifetime_seconds = int(d.get("lifetime_hours", 0) * 3600)
+
+            # 恢复会话与焦点活动（v2.0 含起止时间；旧格式时间为空）
+            if summary:
+                for s in app_data.get("sessions", []):
+                    start_time = datetime.fromisoformat(s["start_time"]) if s.get("start_time") else None
+                    if not start_time:
+                        continue
+                    session = ProcessSession(
+                        summary_id=summary.id,
+                        process_name=exe_name,
+                        session_start_time=start_time,
+                        session_end_time=datetime.fromisoformat(s["end_time"]) if s.get("end_time") else None,
+                        total_lifetime_seconds=int(s.get("lifetime_hours", 0) * 3600),
+                        total_focus_seconds=int(s.get("focus_hours", 0) * 3600),
+                    )
+                    db.add(session)
+                    db.flush()
+                    for a in s.get("window_activities", []):
+                        activity = FocusActivity(
+                            session_id=session.id,
+                            window_title=a.get("window_title", ""),
+                            focus_start_time=datetime.fromisoformat(a["focus_start_time"]) if a.get("focus_start_time") else None,
+                            focus_end_time=datetime.fromisoformat(a["focus_end_time"]) if a.get("focus_end_time") else None,
+                            focus_duration_seconds=int(a.get("focus_hours", 0) * 3600),
+                        )
+                        db.add(activity)
 
             db.commit()
         db.commit()
@@ -313,6 +351,7 @@ def merge_import_json(filepath: str, dry_run: bool = False,
             "apps_added": 0,
             "apps_updated": 0,
             "daily_upserted": 0,
+            "sessions_added": 0,
             "bak_path": bak or "",
         }
 
@@ -337,6 +376,15 @@ def merge_import_json(filepath: str, dry_run: bool = False,
                 stats["apps_added"] += 1
                 if progress_callback:
                     progress_callback(f"[ADD] {exe_name}")
+
+            # 应用完整字段（v2.0；旧格式缺省时用默认值；uid 仅在缺失时补）
+            if app_data.get("uid") and not app.uid:
+                app.uid = app_data["uid"]
+            if app_data.get("launch_path"):
+                app.launch_path = app_data["launch_path"]
+            app.is_watched = app_data.get("is_watched", True)
+            app.is_process_path_different = app_data.get("is_process_path_different", False)
+            app.is_path_exist = app_data.get("is_path_exist", True)
 
             summary = db.query(AppUsageSummary).filter_by(
                 application_id=app.id
@@ -367,6 +415,38 @@ def merge_import_json(filepath: str, dry_run: bool = False,
                 daily.lifetime_seconds = int(
                     d.get("lifetime_hours", 0) * 3600)
                 stats["daily_upserted"] += 1
+
+            # 合并会话与焦点活动（按 summary_id + session_start_time 去重）
+            if summary:
+                for s in app_data.get("sessions", []):
+                    start_time = datetime.fromisoformat(s["start_time"]) if s.get("start_time") else None
+                    if not start_time:
+                        continue
+                    exists = db.query(ProcessSession).filter_by(
+                        summary_id=summary.id, session_start_time=start_time
+                    ).first()
+                    if exists:
+                        continue
+                    session = ProcessSession(
+                        summary_id=summary.id,
+                        process_name=exe_name,
+                        session_start_time=start_time,
+                        session_end_time=datetime.fromisoformat(s["end_time"]) if s.get("end_time") else None,
+                        total_lifetime_seconds=int(s.get("lifetime_hours", 0) * 3600),
+                        total_focus_seconds=int(s.get("focus_hours", 0) * 3600),
+                    )
+                    db.add(session)
+                    db.flush()
+                    for a in s.get("window_activities", []):
+                        activity = FocusActivity(
+                            session_id=session.id,
+                            window_title=a.get("window_title", ""),
+                            focus_start_time=datetime.fromisoformat(a["focus_start_time"]) if a.get("focus_start_time") else None,
+                            focus_end_time=datetime.fromisoformat(a["focus_end_time"]) if a.get("focus_end_time") else None,
+                            focus_duration_seconds=int(a.get("focus_hours", 0) * 3600),
+                        )
+                        db.add(activity)
+                    stats["sessions_added"] += 1
 
             if progress_callback:
                 progress_callback(f"[DONE] {exe_name} ({i+1}/{len(apps)})")

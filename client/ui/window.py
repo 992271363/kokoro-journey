@@ -332,6 +332,12 @@ class Mywindow(QMainWindow):
         else:
             self._tray_icon.hide()
 
+    def _minimize_to_tray(self):
+        if not self._tray_icon.isVisible():
+            self._settings.set("showTrayIcon", True)
+            self._tray_icon.show()
+        self.hide()
+
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.DoubleClick:
             self._tray_show_window()
@@ -668,9 +674,9 @@ class Mywindow(QMainWindow):
         if close_behavior is None:
             event.ignore()
             QTimer.singleShot(0, lambda: self._ask_close_behavior(event))
-        elif close_behavior == "tray" and self._tray_icon.isVisible():
+        elif close_behavior == "tray":
             event.ignore()
-            self.hide()
+            self._minimize_to_tray()
         else:
             event.ignore()
             self._is_closing = True
@@ -681,13 +687,9 @@ class Mywindow(QMainWindow):
         dialog.exec()
 
         if dialog.choice == "tray":
-            if self._tray_icon.isVisible():
-                if dialog.remember_check.isChecked():
-                    self._settings.set("closeToTray", "tray")
-                self.hide()
-            else:
-                self._is_closing = True
-                self._do_graceful_shutdown()
+            if dialog.remember_check.isChecked():
+                self._settings.set("closeToTray", "tray")
+            self._minimize_to_tray()
         elif dialog.choice == "exit":
             if dialog.remember_check.isChecked():
                 self._settings.set("closeToTray", "exit")

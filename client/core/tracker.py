@@ -61,7 +61,7 @@ def record_process_session(
     executable_name: str,
     start_time: datetime.datetime,
     end_time: datetime.datetime,
-    focus_details: dict
+    focus_intervals: list
 ):
     """
     当一个被监视的进程结束时，调用此函数。
@@ -87,7 +87,7 @@ def record_process_session(
 
     # 2. 计算本次会话的总时长和总焦点时长
     total_lifetime = round((end_time - start_time).total_seconds())
-    total_focus_time = round(sum(focus_details.values()))
+    total_focus_time = round(sum(iv["focus_duration_seconds"] for iv in focus_intervals))
     if total_lifetime <= 1:
         print(f"[Tracking Service] 会话时长过短 ({total_lifetime}s)，已忽略。")
         return
@@ -104,21 +104,23 @@ def record_process_session(
     db.add(new_session)
     print(f"[Tracking Service] -> 已创建会话记录: {start_time.strftime('%H:%M:%S')} - {end_time.strftime('%H:%M:%S')}")
 
-    # 4. 在"会话"下为每个窗口标题创建"焦点活动"记录 (FocusActivity)
-    if not focus_details:
+    # 4. 在"会话"下为每个焦点区间创建"焦点活动"记录 (FocusActivity)
+    if not focus_intervals:
         print("[Tracking Service] -> 该会话没有检测到焦点活动。")
     else:
-        print(f"[Tracking Service] -> 该会话检测到 {len(focus_details)} 个窗口标题活动...")
-        for title, focus_seconds in focus_details.items():
-            focus_seconds_int = int(focus_seconds)
+        print(f"[Tracking Service] -> 该会话检测到 {len(focus_intervals)} 个焦点区间活动...")
+        for iv in focus_intervals:
+            focus_seconds_int = int(iv["focus_duration_seconds"])
             if focus_seconds_int > 0:
                 activity = FocusActivity(
                     session=new_session,
-                    window_title=title,
+                    window_title=iv["window_title"],
+                    focus_start_time=iv.get("focus_start_time"),
+                    focus_end_time=iv.get("focus_end_time"),
                     focus_duration_seconds=focus_seconds_int
                 )
                 db.add(activity)
-                print(f"[Tracking Service]     - 焦点活动: '{title}' ({focus_seconds}s)")
+                print(f"[Tracking Service]     - 焦点活动: '{iv['window_title']}' ({focus_seconds_int}s)")
 
     # 5. 更新总账 (AppUsageSummary)
     summary.total_lifetime_seconds = (summary.total_lifetime_seconds or 0) + total_lifetime

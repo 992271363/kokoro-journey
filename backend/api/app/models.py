@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Date, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -18,11 +18,17 @@ class ServerWatchedApplication(Base):
     __tablename__ = 'server_watched_applications'
     __table_args__ = (
         UniqueConstraint('user_id', 'executable_path', name='uix_user_exec_path'),
+        UniqueConstraint('user_id', 'uid', name='uix_user_uid'),
     )
 
     id = Column(Integer, primary_key=True)
+    uid = Column(String(64), nullable=True, index=True)
     executable_name = Column(String(255), nullable=False)
     executable_path = Column(String(512), nullable=False, index=True)
+    launch_path = Column(String(512), nullable=True)
+    is_process_path_different = Column(Boolean, nullable=False, default=False)
+    is_path_exist = Column(Boolean, nullable=False, default=True)
+    is_watched = Column(Boolean, nullable=False, default=True)
 
     # 外键：关联到用户
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -31,6 +37,8 @@ class ServerWatchedApplication(Base):
     owner = relationship("User", back_populates="watched_applications")
     # 关系：一个"被监视的应用"对应一个"总账"
     summary = relationship("ServerAppUsageSummary", back_populates="application", uselist=False, cascade="all, delete-orphan")
+    # 关系：一个"被监视的应用"对应多条每日统计
+    daily_usages = relationship("ServerAppDailyUsage", back_populates="application", cascade="all, delete-orphan")
 
 # 应用使用总账
 class ServerAppUsageSummary(Base):
@@ -77,7 +85,24 @@ class ServerFocusActivity(Base):
     session_id = Column(Integer, ForeignKey('server_process_sessions.id'), nullable=False, index=True)
 
     window_title = Column(String(1024))
+    focus_start_time = Column(DateTime, nullable=True)
+    focus_end_time = Column(DateTime, nullable=True)
     focus_duration_seconds = Column(Integer, nullable=False)
 
     # 关系
     session = relationship("ServerProcessSession", back_populates="activities")
+
+#每日使用统计
+class ServerAppDailyUsage(Base):
+    __tablename__ = 'server_app_daily_usage'
+    __table_args__ = (
+        UniqueConstraint('application_id', 'date', name='uix_server_app_daily_app_date'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    application_id = Column(Integer, ForeignKey('server_watched_applications.id'), nullable=False, index=True)
+    date = Column(Date, nullable=False)
+    lifetime_seconds = Column(BigInteger, nullable=False, default=0)
+    focus_seconds = Column(BigInteger, nullable=False, default=0)
+
+    application = relationship("ServerWatchedApplication", back_populates="daily_usages")

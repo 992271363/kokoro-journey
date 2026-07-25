@@ -1,10 +1,21 @@
+import datetime
 
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, Qt
 from sqlalchemy.orm import joinedload, Session
 from db.database import SessionLocal
-from db.models import ProcessSession, AppUsageSummary
+from db.models import ProcessSession, AppUsageSummary, AppDailyUsage
 from core.api import send_data_to_api
 from typing import List
+
+
+def _to_utc_iso(dt):
+    """把 naive 本地时间转为 UTC 的 ISO 字符串；None 原样返回。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        local_tz = datetime.datetime.now(datetime.timezone.utc).astimezone().tzinfo
+        dt = dt.replace(tzinfo=local_tz)
+    return dt.astimezone(datetime.timezone.utc).isoformat()
 
 def get_and_prepare_sync_data():
     db = SessionLocal()
@@ -19,17 +30,26 @@ def get_and_prepare_sync_data():
 
         data_to_send = []
         for session in sessions_to_sync:
+            app = session.summary.application
             activities_data = []
             for activity in session.activities:
                 activities_data.append({
                     "window_title": activity.window_title,
+                    "focus_start_time": _to_utc_iso(activity.focus_start_time),
+                    "focus_end_time": _to_utc_iso(activity.focus_end_time),
                     "focus_duration_seconds": activity.focus_duration_seconds
                 })
             data_to_send.append({
+                "uid": app.uid,
+                "executable_name": app.executable_name,
+                "executable_path": app.executable_path,
+                "launch_path": app.launch_path,
+                "is_watched": app.is_watched,
+                "is_process_path_different": app.is_process_path_different,
+                "is_path_exist": app.is_path_exist,
                 "process_name": session.process_name,
-                "executable_path": session.summary.application.executable_path,
-                "session_start_time": session.session_start_time.isoformat(),
-                "session_end_time": session.session_end_time.isoformat(),
+                "session_start_time": _to_utc_iso(session.session_start_time),
+                "session_end_time": _to_utc_iso(session.session_end_time),
                 "total_lifetime_seconds": session.total_lifetime_seconds,
                 "total_focus_seconds": session.total_focus_seconds,
                 "activities": activities_data
@@ -51,6 +71,47 @@ def mark_sessions_as_synced(sessions: List[ProcessSession]):
         print(f"[Sync Util] 已将 {len(session_ids)} 个会话标记为已同步。")
     except Exception as e:
         print(f"[Sync Util] 标记同步状态时出错: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def get_and_prepare_daily_data():
+    db = SessionLocal()
+    try:
+        daily_to_sync = db.query(AppDailyUsage).options(
+            joinedload(AppDailyUsage.application)
+        ).filter(AppDailyUsage.synced == False).all()
+
+        if not daily_to_sync:
+            return [], []
+
+        data_to_send = []
+        for d in daily_to_sync:
+            data_to_send.append({
+                "uid": d.application.uid,
+                "date": d.date.isoformat(),
+                "lifetime_seconds": d.lifetime_seconds,
+                "focus_seconds": d.focus_seconds
+            })
+
+        print(f"[Sync Util] 发现 {len(data_to_send)} 条每日统计待同步，准备上传...")
+        return data_to_send, daily_to_sync
+    finally:
+        db.close()
+
+
+def mark_daily_as_synced(daily_list: List[AppDailyUsage]):
+    if not daily_list:
+        return
+    db = SessionLocal()
+    try:
+        daily_ids = [d.id for d in daily_list]
+        db.query(AppDailyUsage).filter(AppDailyUsage.id.in_(daily_ids)).update({"synced": True})
+        db.commit()
+        print(f"[Sync Util] 已将 {len(daily_ids)} 条每日统计标记为已同步。")
+    except Exception as e:
+        print(f"[Sync Util] 标记每日同步状态时出错: {e}")
         db.rollback()
     finally:
         db.close()
@@ -102,6 +163,17 @@ class ApiSyncWorker(QObject):
                 self.status_updated.emit(f"后台成功同步 {len(data_to_send)} 个会话。")
             else:
                 self.status_updated.emit("后台同步失败，将在下一周期重试。")
+
+        # 每日统计同步（在会话之后，确保应用已在服务端创建）
+        daily_data, daily_to_mark = get_and_prepare_daily_data()
+        if daily_data:
+            self.status_updated.emit(f"后台发现 {len(daily_data)} 条每日统计，上传中...")
+            daily_success = send_data_to_api(daily_data, endpoint="/sync/daily/", token=token)
+            if daily_success:
+                mark_daily_as_synced(daily_to_mark)
+                self.status_updated.emit(f"后台成功同步 {len(daily_data)} 条每日统计。")
+            else:
+                self.status_updated.emit("后台每日统计同步失败，将在下一周期重试。")
 
     @Slot()  # 这个 stop 必须在 worker 线程中运行（通过 queued connection 调用）
     def stop(self):
