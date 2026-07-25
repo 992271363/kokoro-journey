@@ -259,9 +259,8 @@ class SettingsDialog(QDialog):
         display_form.setContentsMargins(10, 16, 10, 8)
 
         self.check_show_tray = QCheckBox("显示系统托盘图标")
-        self.check_show_tray.setEnabled(False)
-        self.check_show_tray.setToolTip("待实现")
-        self.check_show_tray.setChecked(True)
+        self.check_show_tray.setToolTip("在系统托盘区显示图标，可快速唤出窗口。")
+        self.check_show_tray.setChecked(bool(Settings().get("showTrayIcon", True)))
         display_form.addRow(self.check_show_tray)
 
         theme_label = QLabel("主题:")
@@ -475,6 +474,7 @@ class SettingsDialog(QDialog):
 
         Settings().set("idleThresholdSeconds", self.spin_idle_threshold.value() * 60)
         Settings().set("idleTipEnabled", self.check_idle_tip.isChecked())
+        Settings().set("showTrayIcon", self.check_show_tray.isChecked())
 
         if autostart.is_available():
             if self.check_autostart.isChecked():
@@ -491,6 +491,9 @@ class SettingsDialog(QDialog):
 
         if hasattr(self.parent(), "_refresh_toolbar_icons"):
             self.parent()._refresh_toolbar_icons()
+
+        if hasattr(self.parent(), "_apply_tray_visibility"):
+            self.parent()._apply_tray_visibility()
 
         self.accept()
 

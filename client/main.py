@@ -2,6 +2,9 @@ import sys  # 提供命令行参数与退出状态码
 import os  # 提供路径拼接等系统相关功能
 import tempfile  # 获取系统临时目录，用于存放锁文件
 
+if "__compiled__" in globals() and not getattr(sys, "frozen", False):
+    sys.frozen = True
+
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # Qt 应用入口类
