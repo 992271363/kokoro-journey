@@ -32,7 +32,7 @@ class LoginDialog(QDialog):
 
         # ---- 主布局 ----
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(24, 20, 24, 16)
+        main_layout.setContentsMargins(24, 20, 24, 20)
         main_layout.setSpacing(12)
 
         # ---- 输入区域（QFormLayout 自动对齐） ----

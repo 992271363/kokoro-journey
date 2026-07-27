@@ -18,7 +18,7 @@ class AddAppDialog(QDialog):
         self.setFixedSize(320, 140)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 20, 25, 20)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(15)
 
         hint = QLabel("请选择添加方式：")
@@ -78,7 +78,7 @@ class AppDetailDialog(QDialog):
 
         layout = QFormLayout(self)
         layout.setLabelAlignment(Qt.AlignRight)
-        layout.setContentsMargins(30, 20, 30, 20)
+        layout.setContentsMargins(24, 20, 24, 20)
         name_without_ext = os.path.splitext(app_data.executable_name)[0]
         layout.addRow("<b>应用名称:</b>", QLabel(name_without_ext))
 
@@ -131,7 +131,7 @@ class ClosingDialog(QDialog):
         self.setModal(True)  # 模态对话框
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 20, 25, 20)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(15)
 
         self.status_label = QLabel("正在保存数据，请稍候...", self)

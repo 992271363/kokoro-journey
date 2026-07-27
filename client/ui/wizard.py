@@ -18,18 +18,18 @@ class FirstRunWizard(QDialog):
         self._selected_path = _default_appdata()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 24, 30, 20)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
 
         title = QLabel("<b>选择数据存储位置</b>")
-        title.setStyleSheet("font-size: 15px;")
+        title.setProperty("role", "title")
         layout.addWidget(title)
 
         desc = QLabel(
             "应用需要创建一个目录来存放本地数据库、设置和未同步数据。\n"
             "你可以使用默认路径，也可以选择放置于根目录或其他位置。"
         )
-        desc.setStyleSheet("color: #64748b; font-size: 12px;")
+        desc.setProperty("role", "desc")
         desc.setWordWrap(True)
         layout.addWidget(desc)
 

@@ -20,12 +20,12 @@ class GroupDialog(QDialog):
         )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 10)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(10)
 
         # 标题
         header = QLabel("<b>分组管理</b>")
-        header.setStyleSheet("font-size: 15px;")
+        header.setProperty("role", "title")
         layout.addWidget(header)
 
         # 分组列表

@@ -200,7 +200,7 @@ class SettingsDialog(QDialog):
         # --- 关闭行为 ---
         close_group = QGroupBox("关闭行为")
         close_form = QFormLayout(close_group)
-        close_form.setContentsMargins(10, 18, 10, 8)
+        close_form.setContentsMargins(10, 16, 10, 8)
 
         self.combo_close_action = AlwaysDownComboBox()
         self.combo_close_action.addItem("每次询问", "ask")
@@ -331,15 +331,14 @@ class SettingsDialog(QDialog):
         # --- 运行统计 ---
         stats_group = QGroupBox("运行统计")
         stats_layout = QVBoxLayout(stats_group)
-        stats_layout.setContentsMargins(12, 16, 12, 12)
+        stats_layout.setContentsMargins(10, 16, 10, 8)
         stats_layout.setSpacing(6)
 
         self._label_current = QLabel("本次运行：计算中…")
-        self._label_current.setStyleSheet("QLabel { font-size: 13px; }")
         stats_layout.addWidget(self._label_current)
 
         self._label_total = QLabel("累计运行：计算中…")
-        self._label_total.setStyleSheet("QLabel { font-size: 13px; color: #888; }")
+        self._label_total.setProperty("role", "muted")
         stats_layout.addWidget(self._label_total)
 
         layout.addWidget(stats_group)

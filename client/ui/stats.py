@@ -115,7 +115,7 @@ class StatsDialog(QDialog):
 
         # 总览
         self.summary_label = QLabel("请选择一个时间段")
-        self.summary_label.setStyleSheet("font-size: 13px; padding: 6px; background: #f1f5f9; border-radius: 6px;")
+        self.summary_label.setObjectName("summary_label")
         right_layout.addWidget(self.summary_label)
 
         # 工具栏：排序 + 视图切换

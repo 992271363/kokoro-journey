@@ -21,10 +21,23 @@ _IS_WATCHED_ROLE = Qt.UserRole + 200
 _IS_PATH_EXIST_ROLE = Qt.UserRole + 201
 _LAUNCH_PATH_ROLE = Qt.UserRole + 202
 
+_LIGHT_STATUS_COLORS = {
+    "path_missing": "#ef4444",
+    "not_watched": "#94a3b8",
+    "not_running": "#cbd5e1",
+    "focused": "#22c55e",
+    "running": "#3b82f6",
+}
+_DARK_STATUS_COLORS = {
+    "path_missing": "#ef4444",
+    "not_watched": "#64748b",
+    "not_running": "#475569",
+    "focused": "#22c55e",
+    "running": "#3b82f6",
+}
+
 
 class StyledHeaderView(QHeaderView):
-    _ARROW_COLOR = QColor(0x47, 0x55, 0x69)
-    _DIVIDER_COLOR = QColor(0x94, 0xa3, 0xb8)
     _GRIP_ZONE = 6
 
     def __init__(self, orientation, parent=None):
@@ -33,6 +46,17 @@ class StyledHeaderView(QHeaderView):
         self.setSortIndicatorShown(True)
         self.setMouseTracking(True)
         self._drag_logical = -1
+        self._arrow_color = QColor(0x47, 0x55, 0x69)
+        self._divider_color = QColor(0x94, 0xa3, 0xb8)
+
+    def set_dark_mode(self, is_dark: bool):
+        if is_dark:
+            self._arrow_color = QColor(0x94, 0xa3, 0xb8)
+            self._divider_color = QColor(0x47, 0x55, 0x69)
+        else:
+            self._arrow_color = QColor(0x47, 0x55, 0x69)
+            self._divider_color = QColor(0x94, 0xa3, 0xb8)
+        self.viewport().update()
 
     def _is_on_resizable_edge(self, pos):
         col = self.logicalIndexAt(pos)
@@ -46,7 +70,7 @@ class StyledHeaderView(QHeaderView):
 
         if logicalIndex == 2:
             painter.save()
-            painter.setPen(QPen(self._DIVIDER_COLOR, 2))
+            painter.setPen(QPen(self._divider_color, 2))
             painter.drawLine(rect.right(), rect.top() + 4, rect.right(), rect.bottom() - 4)
             painter.restore()
 
@@ -54,7 +78,7 @@ class StyledHeaderView(QHeaderView):
             painter.save()
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setPen(Qt.NoPen)
-            painter.setBrush(self._ARROW_COLOR)
+            painter.setBrush(self._arrow_color)
             order = self.sortIndicatorOrder()
             size = 5
             cx = rect.right() - 14
@@ -138,7 +162,18 @@ class AppTableManager(QObject):
         self._zoom_factor = 1.0
         self._base_font = QFont(self.table.font())
         self._last_apps: List[AppInfo] = []
+        self._is_dark = False
+        self._status_colors = dict(_LIGHT_STATUS_COLORS)
+        self._header = None
         self._setup_table()
+
+    def set_dark_mode(self, is_dark: bool):
+        self._is_dark = is_dark
+        self._status_colors = dict(_DARK_STATUS_COLORS if is_dark else _LIGHT_STATUS_COLORS)
+        if self._header:
+            self._header.set_dark_mode(is_dark)
+        if self._last_apps:
+            self.refresh(self._last_apps, skip_width_hint=True)
 
     def apply_zoom(self, factor: float, live_preview: bool = False):
         factor = max(0.5, min(2.5, factor))
@@ -165,6 +200,7 @@ class AppTableManager(QObject):
         self.table.setColumnCount(len(columns))
 
         header = StyledHeaderView(Qt.Horizontal, self.table)
+        self._header = header
         self.table.setHorizontalHeader(header)
         self.table.setHorizontalHeaderLabels(columns)
         header.setSectionsClickable(True)
@@ -222,15 +258,15 @@ class AppTableManager(QObject):
 
             # 状态列：根据 is_watched / is_path_exist 决定颜色
             if not app.is_path_exist:
-                status_color = "#ef4444"
+                status_color = self._status_colors["path_missing"]
                 status_text = "路径不存在"
                 status_value = -2
             elif not app.is_watched:
-                status_color = "#334155"
+                status_color = self._status_colors["not_watched"]
                 status_text = "未监视"
                 status_value = -1
             else:
-                status_color = "#cbd5e0"
+                status_color = self._status_colors["not_running"]
                 status_text = "未运行"
                 status_value = 0
 
@@ -301,7 +337,7 @@ class AppTableManager(QObject):
             if is_path_exist is False:
                 status_item = self.table.item(row, 0)
                 if status_item:
-                    status_item.setIcon(self._create_status_icon("#ef4444"))
+                    status_item.setIcon(self._create_status_icon(self._status_colors["path_missing"]))
                     status_item.setToolTip("路径不存在")
                 continue
 
@@ -310,7 +346,7 @@ class AppTableManager(QObject):
                 status_item = self.table.item(row, 0)
                 if status_item:
                     status_item.setData(Qt.UserRole, -1)
-                    status_item.setIcon(self._create_status_icon("#334155"))
+                    status_item.setIcon(self._create_status_icon(self._status_colors["not_watched"]))
                     status_item.setToolTip("未监视")
                 item_cur_focus = SortableTableWidgetItem("-")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
@@ -337,7 +373,7 @@ class AppTableManager(QObject):
 
             if exe_path in status_data:
                 data = status_data[exe_path]
-                status_color = "#48bb78" if data['is_focused'] else "#4299e1"
+                status_color = self._status_colors["focused"] if data['is_focused'] else self._status_colors["running"]
                 status_val = 2 if data['is_focused'] else 1
 
                 status_item = self.table.item(row, 0)
@@ -372,7 +408,7 @@ class AppTableManager(QObject):
                         item_total_life.setData(_BASE_TOTAL_ROLE, final_life)
 
                     status_item.setData(Qt.UserRole, 0)
-                    status_item.setIcon(self._create_status_icon("#cbd5e0"))
+                    status_item.setIcon(self._create_status_icon(self._status_colors["not_running"]))
 
                     item_cur_focus = SortableTableWidgetItem("-")
                     item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
@@ -404,7 +440,7 @@ class AppTableManager(QObject):
                 status_item = self.table.item(row, 0)
                 if status_item:
                     status_item.setData(Qt.UserRole, -1)
-                    status_item.setIcon(self._create_status_icon("#334155"))
+                    status_item.setIcon(self._create_status_icon(self._status_colors["not_watched"]))
                     status_item.setToolTip("未监视")
                 item_cur_focus = SortableTableWidgetItem("-")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
@@ -416,7 +452,7 @@ class AppTableManager(QObject):
                 status_item = self.table.item(row, 0)
                 if status_item:
                     status_item.setData(Qt.UserRole, 0)
-                    status_item.setIcon(self._create_status_icon("#cbd5e0"))
+                    status_item.setIcon(self._create_status_icon(self._status_colors["not_running"]))
                     status_item.setToolTip("未运行")
             break
 

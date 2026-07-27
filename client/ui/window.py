@@ -190,7 +190,8 @@ class Mywindow(QMainWindow):
         self.user_show = QLabel("未登录")
         self.user_show.setFixedHeight(48)
         self.user_show.setAlignment(Qt.AlignCenter)
-        self.user_show.setStyleSheet("color: #64748b; font-size: 18px;")
+        self.user_show.setObjectName("user_show")
+        self.user_show.setProperty("logged", False)
         toolbar.addWidget(self.user_show)
 
         self.login_action = toolbar.addAction("登录")
@@ -230,7 +231,6 @@ class Mywindow(QMainWindow):
         self._right_click_blocker.right_cancel_requested.connect(
             self._request_pick_cancel_by_right
         )
-        self._refresh_toolbar_icons()
 
         # ---- 组装子模块 ----
         self.table_manager = AppTableManager(self.tableWidget, self, self._settings)
@@ -277,6 +277,7 @@ class Mywindow(QMainWindow):
         self.statusBar().setSizeGripEnabled(False)
         self._size_grip = StyledSizeGrip(self.statusBar())
         self.statusBar().addPermanentWidget(self._size_grip)
+        self._refresh_toolbar_icons()
         self.statusBar().showMessage("系统就绪，正在初始化...", 3000)
 
         self._refresh_table()
@@ -571,7 +572,9 @@ class Mywindow(QMainWindow):
             self.token = dialog.token
             self.username = dialog.username
             self.user_show.setText(self.username)
-            self.user_show.setStyleSheet("padding: 4px 8px; color: #334155; font-size: 12px; font-weight: 500;")
+            self.user_show.setProperty("logged", True)
+            self.user_show.style().unpolish(self.user_show)
+            self.user_show.style().polish(self.user_show)
             self.login_action.setVisible(False)
             self.logout_action.setVisible(True)
             print("[MainWindow] UI 已更新: 显示用户名, 隐藏登录按钮, 显示退出按钮")
@@ -584,7 +587,9 @@ class Mywindow(QMainWindow):
         self.token = None
         self.username = None
         self.user_show.setText("未登录")
-        self.user_show.setStyleSheet("padding: 4px 8px; color: #64748b; font-size: 12px;")
+        self.user_show.setProperty("logged", False)
+        self.user_show.style().unpolish(self.user_show)
+        self.user_show.style().polish(self.user_show)
         self.login_action.setVisible(True)
         self.logout_action.setVisible(False)
         self.statusBar().showMessage("已退出登录", 3000)
@@ -608,6 +613,11 @@ class Mywindow(QMainWindow):
         self.settings_button.setIcon(
             _themed_icon(os.path.join(self._base, "icons", "gear.svg"), gear_color)
         )
+
+        if hasattr(self, "table_manager"):
+            self.table_manager.set_dark_mode(is_dark)
+        if hasattr(self, "_size_grip"):
+            self._size_grip.set_dark_mode(is_dark)
 
     def open_settings_dialog(self):
         total_runtime = self._settings.get("appTotalRuntime", 0)

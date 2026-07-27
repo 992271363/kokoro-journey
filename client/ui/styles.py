@@ -450,6 +450,158 @@ QStatusBar::item {
     border: none;
 }
 
+/* ---- 单选框 ---- */
+QRadioButton {
+    color: #334155;
+    spacing: 6px;
+}
+
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #cbd5e1;
+    border-radius: 9px;
+    background-color: #ffffff;
+}
+
+QRadioButton::indicator:hover {
+    border-color: #3b82f6;
+}
+
+QRadioButton::indicator:checked {
+    border-color: #3b82f6;
+    background-color: #3b82f6;
+}
+
+/* ---- 复选框 ---- */
+QCheckBox {
+    color: #334155;
+    spacing: 6px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #cbd5e1;
+    border-radius: 4px;
+    background-color: #ffffff;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #3b82f6;
+}
+
+QCheckBox::indicator:checked {
+    border-color: #3b82f6;
+    background-color: #3b82f6;
+}
+
+/* ---- 分组框 ---- */
+QGroupBox {
+    color: #334155;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
+}
+
+/* ---- 下拉框 ---- */
+QComboBox {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 22px;
+    color: #334155;
+}
+
+QComboBox:hover {
+    border-color: #3b82f6;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+    selection-background-color: #dbeafe;
+}
+
+/* ---- 数字输入框 ---- */
+QSpinBox {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 22px;
+    color: #334155;
+}
+
+QSpinBox:focus {
+    border-color: #3b82f6;
+}
+
+/* ---- 工具栏用户名标签 ---- */
+QLabel#user_show {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+QLabel#user_show[logged="true"] {
+    color: #334155;
+    font-weight: 500;
+}
+
+/* ---- 数据传输：路径框/摘要框 ---- */
+QLabel#path_label {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 4px 8px;
+    min-height: 20px;
+    color: #334155;
+}
+
+QLabel#summary_label {
+    background-color: #f1f5f9;
+    border-radius: 6px;
+    padding: 6px;
+    color: #334155;
+}
+
+/* ---- 文本角色：标题/副标题/弱化/描述 ---- */
+QLabel[role="title"] {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+QLabel[role="subtitle"] {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+QLabel[role="muted"] {
+    color: #94a3b8;
+}
+
+QLabel[role="desc"] {
+    color: #64748b;
+    font-size: 12px;
+}
+
 QCheckBox[remember_bar="true"] {
     background: rgba(0,0,0,0.04);
     border-radius: 6px;
@@ -1021,5 +1173,55 @@ QSpinBox {
 
 QSpinBox:focus {
     border-color: #3b82f6;
+}
+
+/* ---- 工具栏用户名标签 ---- */
+QLabel#user_show {
+    color: #64748b;
+    font-size: 13px;
+}
+
+QLabel#user_show[logged="true"] {
+    color: #f1f5f9;
+    font-weight: 500;
+}
+
+/* ---- 数据传输：路径框/摘要框 ---- */
+QLabel#path_label {
+    background-color: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 4px;
+    padding: 4px 8px;
+    min-height: 20px;
+    color: #f1f5f9;
+}
+
+QLabel#summary_label {
+    background-color: #334155;
+    border-radius: 6px;
+    padding: 6px;
+    color: #f1f5f9;
+}
+
+/* ---- 文本角色：标题/副标题/弱化/描述 ---- */
+QLabel[role="title"] {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f1f5f9;
+}
+
+QLabel[role="subtitle"] {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+QLabel[role="muted"] {
+    color: #94a3b8;
+}
+
+QLabel[role="desc"] {
+    color: #94a3b8;
+    font-size: 12px;
 }
 """

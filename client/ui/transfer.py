@@ -149,9 +149,7 @@ class _ExportPanel(QWidget):
         path_row = QHBoxLayout()
         path_row.addWidget(QLabel("保存到:"))
         self._path_label = QLabel()
-        self._path_label.setStyleSheet(
-            "border: 1px solid #94a3b8; border-radius: 4px; "
-            "padding: 4px 8px; background: white; min-height: 20px;")
+        self._path_label.setObjectName("path_label")
         self._path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         path_row.addWidget(self._path_label, stretch=1)
         self._btn_browse = QPushButton("浏览...")
@@ -174,8 +172,7 @@ class _ExportPanel(QWidget):
         layout.addWidget(opt_group)
 
         self._summary_label = QLabel("摘要: 选择目标路径后点击导出")
-        self._summary_label.setStyleSheet(
-            "padding: 6px; background: #f1f5f9; border-radius: 6px;")
+        self._summary_label.setObjectName("summary_label")
         layout.addWidget(self._summary_label)
 
         btn_row = QHBoxLayout()
@@ -274,9 +271,7 @@ class _ImportPanel(QWidget):
         path_row = QHBoxLayout()
         path_row.addWidget(QLabel("源文件:"))
         self._path_label = QLabel()
-        self._path_label.setStyleSheet(
-            "border: 1px solid #94a3b8; border-radius: 4px; "
-            "padding: 4px 8px; background: white; min-height: 20px;")
+        self._path_label.setObjectName("path_label")
         self._path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         path_row.addWidget(self._path_label, stretch=1)
         self._btn_browse = QPushButton("浏览...")
@@ -328,8 +323,7 @@ class _ImportPanel(QWidget):
         layout.addWidget(self._preview_table)
 
         self._summary_label = QLabel("摘要: 选择 JSON 文件后点击预览")
-        self._summary_label.setStyleSheet(
-            "padding: 6px; background: #f1f5f9; border-radius: 6px;")
+        self._summary_label.setObjectName("summary_label")
         layout.addWidget(self._summary_label)
 
         self._progress = QProgressBar()
