@@ -10,7 +10,7 @@ import win32con
 import win32api
 import win32process
 
-from PySide6.QtCore import Qt, Signal, QTimer, QObject
+from PySide6.QtCore import Qt, Signal, QTimer, QObject, QPoint
 from PySide6.QtGui import QPainter, QPen, QColor, QCursor
 from PySide6.QtWidgets import QWidget, QApplication, QPushButton
 
@@ -72,6 +72,7 @@ enable_dpi_awareness()
 
 class PickButton(QPushButton):
     pick_requested = Signal()
+    right_clicked = Signal(QPoint)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -94,6 +95,7 @@ class PickButton(QPushButton):
             return
 
         if event.button() == Qt.RightButton:
+            self.right_clicked.emit(event.globalPosition().toPoint())
             event.accept()
             return
 

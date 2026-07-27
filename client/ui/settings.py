@@ -251,6 +251,11 @@ class SettingsDialog(QDialog):
         self.check_idle_tip.setToolTip("无操作达到上方时长时，弹出系统托盘提示。")
         general_form.addRow(self.check_idle_tip)
 
+        self.check_hide_on_pick = QCheckBox("拾取窗口时隐藏主窗口")
+        self.check_hide_on_pick.setChecked(bool(Settings().get("hideWindowOnPick", True)))
+        self.check_hide_on_pick.setToolTip("拾取窗口时临时隐藏主窗口，便于选取被主窗口挡住的窗口。")
+        general_form.addRow(self.check_hide_on_pick)
+
         layout.addWidget(general_group)
 
         # --- 显示 ---
@@ -474,6 +479,7 @@ class SettingsDialog(QDialog):
         Settings().set("idleThresholdSeconds", self.spin_idle_threshold.value() * 60)
         Settings().set("idleTipEnabled", self.check_idle_tip.isChecked())
         Settings().set("showTrayIcon", self.check_show_tray.isChecked())
+        Settings().set("hideWindowOnPick", self.check_hide_on_pick.isChecked())
 
         if autostart.is_available():
             if self.check_autostart.isChecked():

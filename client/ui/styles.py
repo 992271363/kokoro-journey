@@ -22,6 +22,11 @@ QMainWindow::separator {
     height: 2px;
 }
 
+/* ---- 内容凹槽（表格卡片浮起的背景） ---- */
+QWidget#content_well {
+    background-color: #eaeff6;
+}
+
 /* ---- 对话框 ---- */
 QDialog {
     background-color: #ffffff;
@@ -681,6 +686,11 @@ QMainWindow::separator {
     background: #334155;
     width: 2px;
     height: 2px;
+}
+
+/* ---- 内容凹槽（表格卡片浮起的背景） ---- */
+QWidget#content_well {
+    background-color: #0b1220;
 }
 
 /* ---- 对话框 ---- */

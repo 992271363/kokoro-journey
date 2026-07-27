@@ -93,13 +93,6 @@ class Mywindow(QMainWindow):
         toolbar.setIconSize(QSize(27, 27))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
         toolbar.setStyleSheet("""
-            QToolBar {
-                border: none;
-                padding: 6px 8px;
-                spacing: 6px;
-                background: transparent;
-            }
-
             QToolBar QToolButton {
                 min-height: 48px;
                 max-height: 48px;
@@ -214,6 +207,7 @@ class Mywindow(QMainWindow):
 
         # ---- 表格 ----
         self._table_container = QWidget()
+        self._table_container.setObjectName("content_well")
         table_layout = QVBoxLayout(self._table_container)
         table_layout.setContentsMargins(16, 12, 16, 18)
         table_layout.setSpacing(0)
@@ -264,6 +258,7 @@ class Mywindow(QMainWindow):
         # ---- 信号连接 ----
         self.pushButton_procs.clicked.connect(self.open_add_app_dialog)
         self.btn_crosshair.pick_requested.connect(self.start_pick_window)
+        self.btn_crosshair.right_clicked.connect(self._show_pick_button_menu)
         self.search_edit.textChanged.connect(self._apply_table_search)
         self.btn_monitor_toggle.clicked.connect(self._toggle_monitor)
         self.settings_button.clicked.connect(self.open_settings_dialog)
@@ -366,7 +361,7 @@ class Mywindow(QMainWindow):
         # 「全部」按钮
         btn_all = QPushButton("全部")
         btn_all.setCheckable(True)
-        btn_all.setFixedHeight(32)
+        btn_all.setFixedHeight(40)
         btn_all.setProperty("group_btn", True)
         btn_all.setProperty("group_id", None)
         self.group_buttons.addButton(btn_all)
@@ -378,7 +373,7 @@ class Mywindow(QMainWindow):
         for gid, gname in groups:
             btn = QPushButton(gname)
             btn.setCheckable(True)
-            btn.setFixedHeight(32)
+            btn.setFixedHeight(40)
             btn.setProperty("group_btn", True)
             btn.setProperty("group_id", gid)
             self.group_buttons.addButton(btn)
@@ -388,8 +383,8 @@ class Mywindow(QMainWindow):
 
         # [+按钮] 管理分组
         btn_manage = QPushButton("+")
-        btn_manage.setFixedHeight(32)
-        btn_manage.setFixedWidth(32)
+        btn_manage.setFixedHeight(40)
+        btn_manage.setFixedWidth(40)
         btn_manage.setToolTip("管理分组")
         btn_manage.setProperty("group_btn", True)
         btn_manage.clicked.connect(self._open_group_dialog)
@@ -499,8 +494,26 @@ class Mywindow(QMainWindow):
             self.table_manager.table.setUpdatesEnabled(True)
             self._refresh_monitor_list()
 
+    def _show_pick_button_menu(self, global_pos):
+        menu = QMenu(self)
+        action = menu.addAction("拾取时隐藏主窗口")
+        action.setCheckable(True)
+        action.setChecked(bool(self._settings.get("hideWindowOnPick", True)))
+        action.toggled.connect(lambda checked: self._settings.set("hideWindowOnPick", checked))
+        menu.exec(global_pos)
+
+    def _restore_main_after_pick(self):
+        if getattr(self, "_pick_hid_main", False):
+            self.showNormal()
+            self.activateWindow()
+            self._pick_hid_main = False
+
     def start_pick_window(self):
         QApplication.instance().installEventFilter(self._right_click_blocker)
+
+        self._pick_hid_main = bool(self._settings.get("hideWindowOnPick", True))
+        if self._pick_hid_main:
+            self.hide()
 
         self._pick_overlay = PickOverlay()
         self._pick_overlay.window_picked.connect(self._on_window_picked)
@@ -524,10 +537,12 @@ class Mywindow(QMainWindow):
 
     def on_pick_cancelled(self):
         self._remove_pick_right_click_blocker()
+        self._restore_main_after_pick()
         QTimer.singleShot(0, lambda: self.statusBar().showMessage("已取消拾取", 2000))
 
     def _on_window_picked(self, hwnd):
         self._remove_pick_right_click_blocker()
+        self._restore_main_after_pick()
         self.raise_()
         self.activateWindow()
         self._pick_hwnd(hwnd)
@@ -626,10 +641,10 @@ class Mywindow(QMainWindow):
             return
         if getattr(self, "_table_shadow", None) is None:
             self._table_shadow = QGraphicsDropShadowEffect(self)
-            self._table_shadow.setBlurRadius(18)
-            self._table_shadow.setOffset(0, 3)
+            self._table_shadow.setBlurRadius(12)
+            self._table_shadow.setOffset(0, 2)
             self.tableWidget.setGraphicsEffect(self._table_shadow)
-        self._table_shadow.setColor(QColor(0, 0, 0, 170) if is_dark else QColor(15, 23, 42, 70))
+        self._table_shadow.setColor(QColor(0, 0, 0, 120) if is_dark else QColor(15, 23, 42, 45))
 
     def open_settings_dialog(self):
         total_runtime = self._settings.get("appTotalRuntime", 0)
