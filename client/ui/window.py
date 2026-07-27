@@ -11,7 +11,8 @@ from PySide6.QtGui import QAction, QIcon, QImage, QColor, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QDialog, QPushButton, QLabel,
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
-    QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup
+    QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup,
+    QGraphicsDropShadowEffect
 )
 
 from db.repository import AppRepository
@@ -214,7 +215,7 @@ class Mywindow(QMainWindow):
         # ---- 表格 ----
         self._table_container = QWidget()
         table_layout = QVBoxLayout(self._table_container)
-        table_layout.setContentsMargins(10, 10, 10, 10)
+        table_layout.setContentsMargins(16, 12, 16, 18)
         table_layout.setSpacing(0)
 
         self.tableWidget = QTableWidget()
@@ -618,6 +619,17 @@ class Mywindow(QMainWindow):
             self.table_manager.set_dark_mode(is_dark)
         if hasattr(self, "_size_grip"):
             self._size_grip.set_dark_mode(is_dark)
+        self._apply_depth(is_dark)
+
+    def _apply_depth(self, is_dark: bool):
+        if not hasattr(self, "tableWidget"):
+            return
+        if getattr(self, "_table_shadow", None) is None:
+            self._table_shadow = QGraphicsDropShadowEffect(self)
+            self._table_shadow.setBlurRadius(18)
+            self._table_shadow.setOffset(0, 3)
+            self.tableWidget.setGraphicsEffect(self._table_shadow)
+        self._table_shadow.setColor(QColor(0, 0, 0, 170) if is_dark else QColor(15, 23, 42, 70))
 
     def open_settings_dialog(self):
         total_runtime = self._settings.get("appTotalRuntime", 0)

@@ -317,6 +317,10 @@ QScrollBar::handle:vertical:hover {
     background: #94a3b8;
 }
 
+QScrollBar::handle:vertical:pressed {
+    background: #64748b;
+}
+
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {
     height: 0px;
@@ -336,6 +340,10 @@ QScrollBar::handle:horizontal {
 
 QScrollBar::handle:horizontal:hover {
     background: #94a3b8;
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background: #64748b;
 }
 
 QScrollBar::add-line:horizontal,
@@ -606,6 +614,48 @@ QCheckBox[remember_bar="true"] {
     background: rgba(0,0,0,0.04);
     border-radius: 6px;
     padding: 8px 12px;
+}
+
+/* ---- 提示气泡 ---- */
+QToolTip {
+    background-color: #1e293b;
+    color: #f1f5f9;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* ---- 滑块 ---- */
+QSlider::groove:horizontal {
+    height: 4px;
+    background: #e2e8f0;
+    border-radius: 2px;
+}
+QSlider::sub-page:horizontal {
+    background: #3b82f6;
+    border-radius: 2px;
+}
+QSlider::handle:horizontal {
+    width: 16px;
+    height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+    background: #3b82f6;
+}
+QSlider::handle:horizontal:hover {
+    background: #2563eb;
+}
+
+/* ---- 多行文本框 ---- */
+QTextEdit {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 6px;
+    font-family: "Consolas", "Cascadia Code", "Microsoft YaHei", monospace;
+    font-size: 12px;
+    color: #334155;
 }
 """
 
@@ -933,6 +983,10 @@ QScrollBar::handle:vertical:hover {
     background: #64748b;
 }
 
+QScrollBar::handle:vertical:pressed {
+    background: #94a3b8;
+}
+
 QScrollBar::add-line:vertical,
 QScrollBar::sub-line:vertical {
     height: 0px;
@@ -952,6 +1006,10 @@ QScrollBar::handle:horizontal {
 
 QScrollBar::handle:horizontal:hover {
     background: #64748b;
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background: #94a3b8;
 }
 
 QScrollBar::add-line:horizontal,
@@ -1223,5 +1281,47 @@ QLabel[role="muted"] {
 QLabel[role="desc"] {
     color: #94a3b8;
     font-size: 12px;
+}
+
+/* ---- 提示气泡 ---- */
+QToolTip {
+    background-color: #475569;
+    color: #f1f5f9;
+    border: 1px solid #64748b;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* ---- 滑块 ---- */
+QSlider::groove:horizontal {
+    height: 4px;
+    background: #475569;
+    border-radius: 2px;
+}
+QSlider::sub-page:horizontal {
+    background: #3b82f6;
+    border-radius: 2px;
+}
+QSlider::handle:horizontal {
+    width: 16px;
+    height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+    background: #3b82f6;
+}
+QSlider::handle:horizontal:hover {
+    background: #2563eb;
+}
+
+/* ---- 多行文本框 ---- */
+QTextEdit {
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px;
+    font-family: "Consolas", "Cascadia Code", "Microsoft YaHei", monospace;
+    font-size: 12px;
+    color: #e2e8f0;
 }
 """
