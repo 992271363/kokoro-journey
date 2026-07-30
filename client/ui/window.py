@@ -238,7 +238,7 @@ class Mywindow(QMainWindow):
 
         self.monitor_controller = MonitorController(self)
         self.monitor_controller.status_updated.connect(self.table_manager.update_status)
-        self.monitor_controller.session_finished.connect(self._refresh_table)
+        self.monitor_controller.session_finished.connect(self._on_session_finished)
         self.monitor_controller.session_save_failed.connect(self._on_session_save_failed)
         self.monitor_controller.user_went_idle.connect(self._on_user_went_idle)
         self.monitor_controller.user_came_back.connect(self._on_user_came_back)
@@ -295,6 +295,7 @@ class Mywindow(QMainWindow):
             self.btn_monitor_toggle.setProperty("paused", False)
             self.btn_monitor_toggle.setStyle(self.btn_monitor_toggle.style())
             self._settings.set("monitorEnabled", True)
+            self.table_manager.cancel_sort_preserve()
             self.statusBar().showMessage("监控已恢复", 3000)
         else:
             self.monitor_controller.pause()
@@ -409,10 +410,13 @@ class Mywindow(QMainWindow):
             self._rebuild_group_buttons()
             self._refresh_table()
 
-    def _refresh_table(self, skip_width_hint=False):
+    def _refresh_table(self, skip_width_hint=False, preserve_sort=False):
         apps = AppRepository.get_all_apps(group_filter=self._current_group_id)
-        self.table_manager.refresh(apps, skip_width_hint=skip_width_hint)
+        self.table_manager.refresh(apps, skip_width_hint=skip_width_hint, preserve_sort=preserve_sort)
         self._apply_table_search()
+
+    def _on_session_finished(self, exe_name, duration):
+        self._refresh_table(skip_width_hint=True, preserve_sort=True)
 
     def _apply_table_search(self):
         if not hasattr(self, "search_edit"):

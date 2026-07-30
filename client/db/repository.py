@@ -11,6 +11,7 @@ from db.models import (
 )
 from core.tracker import add_or_get_watched_app
 from util.path import normalize_exe_path
+from util.format import never_text
 
 
 @dataclass
@@ -59,8 +60,8 @@ class AppRepository:
                     exe_name=app.executable_name,
                     total_focus_seconds=app.summary.total_focus_time_seconds if app.summary else 0,
                     total_lifetime_seconds=app.summary.total_lifetime_seconds if app.summary else 0,
-                    last_start_at=app.summary.last_seen_start_at.strftime("%Y/%m/%d %H:%M") if app.summary and app.summary.last_seen_start_at else "从未",
-                    first_seen_at=app.summary.first_seen_at.strftime("%Y/%m/%d %H:%M") if app.summary and app.summary.first_seen_at else "从未",
+                    last_start_at=app.summary.last_seen_start_at.strftime("%Y/%m/%d %H:%M") if app.summary and app.summary.last_seen_start_at else never_text(),
+                    first_seen_at=app.summary.first_seen_at.strftime("%Y/%m/%d %H:%M") if app.summary and app.summary.first_seen_at else never_text(),
                     last_start_at_ts=app.summary.last_seen_start_at.timestamp() if app.summary and app.summary.last_seen_start_at else 0,
                     first_seen_at_ts=app.summary.first_seen_at.timestamp() if app.summary and app.summary.first_seen_at else 0,
                     is_watched=app.is_watched,

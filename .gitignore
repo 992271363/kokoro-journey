@@ -242,6 +242,7 @@ dist_test/
 .claude/
 
 开发日志.md
+产品待办.md
 
 #settings
 client/settings.json

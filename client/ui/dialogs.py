@@ -7,7 +7,7 @@ from PySide6.QtGui import QFont
 import os
 
 from db.models import WatchedApplication
-from util.format import format_seconds_to_text
+from util.format import format_seconds_to_text, never_text
 from ui.proc import ProcSelectDialog
 
 
@@ -96,7 +96,7 @@ class AppDetailDialog(QDialog):
         summary = app_data.summary
 
         def fmt_time(dt):
-            return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else "从未"
+            return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else never_text()
 
         layout.addRow("总焦点时长:", QLabel(format_seconds_to_text(summary.total_focus_time_seconds)))
         layout.addRow("总运行时长:", QLabel(format_seconds_to_text(summary.total_lifetime_seconds)))

@@ -291,6 +291,29 @@ class SettingsDialog(QDialog):
         theme_layout.addWidget(self.radio_system)
         display_form.addRow(theme_label, theme_layout)
 
+        time_format_label = QLabel("时间格式:")
+        self.radio_fmt_chinese = QRadioButton("中文（39小时56分13秒）")
+        self.radio_fmt_english = QRadioButton("英文（39h56m13s）")
+        self.radio_fmt_numeric = QRadioButton("数字（39:56:13）")
+        self.time_format_group = QButtonGroup(self)
+        self.time_format_group.addButton(self.radio_fmt_chinese)
+        self.time_format_group.addButton(self.radio_fmt_english)
+        self.time_format_group.addButton(self.radio_fmt_numeric)
+
+        current_format = Settings().get("timeFormat", "english")
+        if current_format == "chinese":
+            self.radio_fmt_chinese.setChecked(True)
+        elif current_format == "numeric":
+            self.radio_fmt_numeric.setChecked(True)
+        else:
+            self.radio_fmt_english.setChecked(True)
+
+        time_format_layout = QVBoxLayout()
+        time_format_layout.addWidget(self.radio_fmt_chinese)
+        time_format_layout.addWidget(self.radio_fmt_english)
+        time_format_layout.addWidget(self.radio_fmt_numeric)
+        display_form.addRow(time_format_label, time_format_layout)
+
         self.btn_zoom = QPushButton("调整列表缩放...")
         self.btn_zoom.clicked.connect(self._open_zoom_dialog)
         display_form.addRow(self.btn_zoom)
@@ -499,6 +522,17 @@ class SettingsDialog(QDialog):
 
         if hasattr(self.parent(), "_apply_tray_visibility"):
             self.parent()._apply_tray_visibility()
+
+        if self.radio_fmt_chinese.isChecked():
+            new_format = "chinese"
+        elif self.radio_fmt_numeric.isChecked():
+            new_format = "numeric"
+        else:
+            new_format = "english"
+        if new_format != Settings().get("timeFormat", "english"):
+            Settings().set("timeFormat", new_format)
+            if hasattr(self.parent(), "_refresh_table"):
+                self.parent()._refresh_table()
 
         self.accept()
 

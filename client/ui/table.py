@@ -20,6 +20,7 @@ _BASE_TOTAL_ROLE = Qt.UserRole + 100
 _IS_WATCHED_ROLE = Qt.UserRole + 200
 _IS_PATH_EXIST_ROLE = Qt.UserRole + 201
 _LAUNCH_PATH_ROLE = Qt.UserRole + 202
+_ORDER_OVERRIDE_ROLE = Qt.UserRole + 500
 
 _LIGHT_STATUS_COLORS = {
     "path_missing": "#ef4444",
@@ -129,6 +130,13 @@ class SortableTableWidgetItem(QTableWidgetItem):
     _ascending = True
 
     def __lt__(self, other):
+        my_order = self.data(_ORDER_OVERRIDE_ROLE)
+        other_order = other.data(_ORDER_OVERRIDE_ROLE)
+        if my_order is not None and other_order is not None:
+            if SortableTableWidgetItem._ascending:
+                return my_order < other_order
+            return my_order > other_order
+
         my_val = self.data(Qt.UserRole)
         other_val = other.data(Qt.UserRole)
 
@@ -165,6 +173,7 @@ class AppTableManager(QObject):
         self._is_dark = False
         self._status_colors = dict(_LIGHT_STATUS_COLORS)
         self._header = None
+        self._sort_preserved = False
         self._setup_table()
 
     def set_dark_mode(self, is_dark: bool):
@@ -177,6 +186,8 @@ class AppTableManager(QObject):
 
     def apply_zoom(self, factor: float, live_preview: bool = False):
         factor = max(0.5, min(2.5, factor))
+        if factor == self._zoom_factor:
+            return
         self._zoom_factor = factor
 
         font = QFont(self._base_font)
@@ -227,6 +238,7 @@ class AppTableManager(QObject):
         self.table.setSortingEnabled(True)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._on_sort_indicator_changed)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._save_sort_preference)
+        self.table.horizontalHeader().sectionClicked.connect(self._clear_sort_override)
 
         header.setSectionsMovable(True)
         header.setDragEnabled(True)
@@ -248,9 +260,19 @@ class AppTableManager(QObject):
         painter.end()
         return QIcon(pixmap)
 
-    def refresh(self, apps: List[AppInfo], skip_width_hint: bool = False):
+    def refresh(self, apps: List[AppInfo], skip_width_hint: bool = False, preserve_sort: bool = False):
         self._last_apps = apps
+        self.table.setUpdatesEnabled(False)
         self.table.setSortingEnabled(False)
+        if preserve_sort:
+            _hdr = self.table.horizontalHeader()
+            _preserve_col = _hdr.sortIndicatorSection()
+            _preserve_order = _hdr.sortIndicatorOrder()
+            _order = []
+            for _r in range(self.table.rowCount()):
+                _ni = self.table.item(_r, 2)
+                if _ni:
+                    _order.append(_ni.data(Qt.UserRole))
         self.table.setRowCount(0)
         for app in apps:
             row = self.table.rowCount()
@@ -292,11 +314,11 @@ class AppTableManager(QObject):
                 name_item.setText(f"{Path(app.exe_name).stem}  {dots}")
             self.table.setItem(row, 2, name_item)
 
-            item_cur_focus = SortableTableWidgetItem("-")
+            item_cur_focus = SortableTableWidgetItem("")
             item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
             self.table.setItem(row, 3, item_cur_focus)
 
-            item_cur_run = SortableTableWidgetItem("-")
+            item_cur_run = SortableTableWidgetItem("")
             item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
             self.table.setItem(row, 4, item_cur_run)
 
@@ -318,12 +340,33 @@ class AppTableManager(QObject):
             item_life.setData(_BASE_TOTAL_ROLE, app.total_lifetime_seconds)
             self.table.setItem(row, 8, item_life)
 
-        self._restore_sort()
+        if preserve_sort:
+            self._preserve_col = _preserve_col
+            _order_index = {exe_path: i for i, exe_path in enumerate(_order)}
+            for _r in range(self.table.rowCount()):
+                _ni = self.table.item(_r, 2)
+                if not _ni:
+                    continue
+                _idx = _order_index.get(_ni.data(Qt.UserRole))
+                if _idx is not None:
+                    _si = self.table.item(_r, _preserve_col)
+                    if _si:
+                        _si.setData(_ORDER_OVERRIDE_ROLE, _idx)
+            SortableTableWidgetItem._ascending = (_preserve_order == Qt.AscendingOrder)
+            self.table.sortItems(_preserve_col, _preserve_order)
+            self.table.setSortingEnabled(False)
+            self._sort_preserved = True
+        else:
+            self._sort_preserved = False
+            self._clear_override_keys()
+            self._restore_sort()
         self._adjust_name_column_width()
+        self.table.setUpdatesEnabled(True)
         if not skip_width_hint:
             self._emit_table_width_hint()
 
     def update_status(self, status_data: dict):
+        self.table.setUpdatesEnabled(False)
         self.table.setSortingEnabled(False)
         for row in range(self.table.rowCount()):
             exe_name_item = self.table.item(row, 2)
@@ -348,10 +391,10 @@ class AppTableManager(QObject):
                     status_item.setData(Qt.UserRole, -1)
                     status_item.setIcon(self._create_status_icon(self._status_colors["not_watched"]))
                     status_item.setToolTip("未监视")
-                item_cur_focus = SortableTableWidgetItem("-")
+                item_cur_focus = SortableTableWidgetItem("")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
                 self.table.setItem(row, 3, item_cur_focus)
-                item_cur_run = SortableTableWidgetItem("-")
+                item_cur_run = SortableTableWidgetItem("")
                 item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
                 self.table.setItem(row, 4, item_cur_run)
                 continue
@@ -410,11 +453,11 @@ class AppTableManager(QObject):
                     status_item.setData(Qt.UserRole, 0)
                     status_item.setIcon(self._create_status_icon(self._status_colors["not_running"]))
 
-                    item_cur_focus = SortableTableWidgetItem("-")
+                    item_cur_focus = SortableTableWidgetItem("")
                     item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
                     self.table.setItem(row, 3, item_cur_focus)
 
-                    item_cur_run = SortableTableWidgetItem("-")
+                    item_cur_run = SortableTableWidgetItem("")
                     item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
                     self.table.setItem(row, 4, item_cur_run)
 
@@ -425,7 +468,10 @@ class AppTableManager(QObject):
                     item_total_life.setText(format_seconds_to_text(final_life))
                     item_total_focus.setData(Qt.UserRole, final_focus)
                     item_total_life.setData(Qt.UserRole, final_life)
-        self.table.setSortingEnabled(True)
+        if not getattr(self, "_sort_preserved", False):
+            self._clear_override_keys()
+            self.table.setSortingEnabled(True)
+        self.table.setUpdatesEnabled(True)
 
     def set_row_watched_state(self, exe_path: str, watched: bool):
         """只更新指定行的监视状态，不重建整张表。"""
@@ -442,10 +488,10 @@ class AppTableManager(QObject):
                     status_item.setData(Qt.UserRole, -1)
                     status_item.setIcon(self._create_status_icon(self._status_colors["not_watched"]))
                     status_item.setToolTip("未监视")
-                item_cur_focus = SortableTableWidgetItem("-")
+                item_cur_focus = SortableTableWidgetItem("")
                 item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
                 self.table.setItem(row, 3, item_cur_focus)
-                item_cur_run = SortableTableWidgetItem("-")
+                item_cur_run = SortableTableWidgetItem("")
                 item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
                 self.table.setItem(row, 4, item_cur_run)
             else:
@@ -617,6 +663,30 @@ class AppTableManager(QObject):
             except (TypeError, ValueError):
                 pass
         self.table.setSortingEnabled(True)
+
+    def _clear_override_keys(self):
+        preserve_col = getattr(self, "_preserve_col", 2)
+        for _r in range(self.table.rowCount()):
+            _si = self.table.item(_r, preserve_col)
+            if _si:
+                _si.setData(_ORDER_OVERRIDE_ROLE, None)
+
+    def _clear_sort_override(self, column):
+        if getattr(self, "_sort_preserved", False):
+            self._sort_preserved = False
+            self._clear_override_keys()
+            hdr = self.table.horizontalHeader()
+            if hdr.sortIndicatorSection() == column:
+                new_order = Qt.DescendingOrder if hdr.sortIndicatorOrder() == Qt.AscendingOrder else Qt.AscendingOrder
+            else:
+                new_order = Qt.AscendingOrder
+            self.table.setSortingEnabled(True)
+            self.table.sortByColumn(column, new_order)
+
+    def cancel_sort_preserve(self):
+        if getattr(self, "_sort_preserved", False):
+            self._sort_preserved = False
+            self._clear_override_keys()
 
     def _adjust_name_column_width(self):
         name_col = 2
