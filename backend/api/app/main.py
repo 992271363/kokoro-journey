@@ -19,7 +19,7 @@ def ensure_aware_dt(dt: datetime) -> datetime:
 # 初始化数据库表
 models.Base.metadata.create_all(bind=database.engine)
 
-app = FastAPI(title="Desktop Activity System API")
+app = FastAPI(title="Kokoro Journey API")
 app.include_router(dashboard.router)
 logger.info("后端 API 已启动。")
 

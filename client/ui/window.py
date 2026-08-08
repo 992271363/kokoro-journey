@@ -77,7 +77,7 @@ class Mywindow(QMainWindow):
         super().__init__()
 
         # ---- UI 初始化 ----
-        self.setWindowTitle("desktopActivitySystem")
+        self.setWindowTitle("Kokoro Journey")
         self.resize(1100, 619)
 
         central = QWidget(self)

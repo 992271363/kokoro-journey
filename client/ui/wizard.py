@@ -11,7 +11,7 @@ from util.config import Settings
 class FirstRunWizard(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("欢迎使用 desktopActivitySystem")
+        self.setWindowTitle("欢迎使用 Kokoro Journey")
         self.setFixedSize(520, 240)
         self.setWindowFlags(Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint)
 

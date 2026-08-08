@@ -27,7 +27,7 @@ from ui.wizard import FirstRunWizard
 # 2. 建议使用你的软件英文名，例如 "my_app.lock"
 # 3. 不要每次启动都随机生成，否则就无法判断是否重复启动
 # ============================================================
-APP_LOCK_NAME = "my_unique_app.lock"
+APP_LOCK_NAME = "kokoro_journey.lock"
 
 
 def check_single_instance():

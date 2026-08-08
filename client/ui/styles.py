@@ -4,7 +4,7 @@ _ICONS_DIR = _program_dir().replace("\\", "/") + "/icons"
 
 MODERN_LIGHT_QSS = """
 /* =========================================
-   Modern Light Theme for PySide6 Desktop Activity System
+   Modern Light Theme for PySide6 Kokoro Journey
    ========================================= */
 
 /* ---- 全局基础 ---- */
@@ -672,7 +672,7 @@ QTextEdit {
 
 MODERN_DARK_QSS = """
 /* =========================================
-   Modern Dark Theme for PySide6 Desktop Activity System
+   Modern Dark Theme for PySide6 Kokoro Journey
    ========================================= */
 
 /* ---- 全局基础 ---- */

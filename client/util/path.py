@@ -22,7 +22,7 @@ def _settings_dir() -> str:
     local_appdata = os.environ.get("LOCALAPPDATA")
     if not local_appdata:
         local_appdata = os.path.expanduser("~\\AppData\\Local")
-    return os.path.join(local_appdata, "desktopActivitySystem")
+    return os.path.join(local_appdata, "kokoroJourney")
 
 
 def _from_cmdline() -> str | None:

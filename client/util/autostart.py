@@ -3,7 +3,7 @@ import os
 import winreg
 
 _REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_APP_NAME = "DesktopActivitySystem"
+_APP_NAME = "KokoroJourney"
 
 
 def _exe_path() -> str:
