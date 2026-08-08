@@ -152,25 +152,27 @@ class AppTableManager(QObject):
 
     def apply_zoom(self, factor: float, live_preview: bool = False):
         factor = max(0.5, min(2.5, factor))
-        if factor == self._zoom_factor:
-            return
-        self._zoom_factor = factor
+        if factor != self._zoom_factor:
+            self._zoom_factor = factor
 
-        font = QFont(self._base_font)
-        base_size = self._base_font.pointSizeF() or 13
-        font.setPointSizeF(base_size * factor)
-        self.table.setFont(font)
-        self.table.horizontalHeader().setFont(font)
+            font = QFont(self._base_font)
+            base_size = self._base_font.pointSizeF() or 13
+            font.setPointSizeF(base_size * factor)
+            self.table.setFont(font)
+            self.table.horizontalHeader().setFont(font)
 
-        row_h = QFontMetrics(font).height() + 12
-        icon_sz = max(8, int(round(20 * factor)))
-        icon_sz = min(icon_sz, row_h - 4)
-        self.table.setIconSize(QSize(icon_sz, icon_sz))
+            row_h = QFontMetrics(font).height() + 12
+            icon_sz = max(8, int(round(20 * factor)))
+            icon_sz = min(icon_sz, row_h - 4)
+            self.table.setIconSize(QSize(icon_sz, icon_sz))
 
-        self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
+            self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
 
-        if self._last_apps:
-            self.refresh(self._last_apps, skip_width_hint=True)
+            if self._last_apps:
+                self.refresh(self._last_apps, skip_width_hint=True)
+
+        if not live_preview:
+            self._emit_table_width_hint()
 
     def _setup_table(self):
         columns = ["状态", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
