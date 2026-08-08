@@ -1,3 +1,7 @@
+from util.path import _program_dir
+
+_ICONS_DIR = _program_dir().replace("\\", "/") + "/icons"
+
 MODERN_LIGHT_QSS = """
 /* =========================================
    Modern Light Theme for PySide6 Desktop Activity System
@@ -484,6 +488,7 @@ QRadioButton::indicator:hover {
 QRadioButton::indicator:checked {
     border-color: #3b82f6;
     background-color: #3b82f6;
+    image: url("__ICONS_DIR__/check_light.svg");
 }
 
 /* ---- 复选框 ---- */
@@ -507,6 +512,7 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked {
     border-color: #3b82f6;
     background-color: #3b82f6;
+    image: url("__ICONS_DIR__/check_light.svg");
 }
 
 /* ---- 分组框 ---- */
@@ -1156,6 +1162,7 @@ QRadioButton::indicator:hover {
 QRadioButton::indicator:checked {
     border-color: #3b82f6;
     background-color: #3b82f6;
+    image: url("__ICONS_DIR__/check_dark.svg");
 }
 
 /* ---- 复选框 ---- */
@@ -1179,6 +1186,7 @@ QCheckBox::indicator:hover {
 QCheckBox::indicator:checked {
     border-color: #3b82f6;
     background-color: #3b82f6;
+    image: url("__ICONS_DIR__/check_dark.svg");
 }
 
 QCheckBox[remember_bar="true"] {
@@ -1335,3 +1343,6 @@ QTextEdit {
     color: #e2e8f0;
 }
 """
+
+MODERN_LIGHT_QSS = MODERN_LIGHT_QSS.replace("__ICONS_DIR__", _ICONS_DIR)
+MODERN_DARK_QSS = MODERN_DARK_QSS.replace("__ICONS_DIR__", _ICONS_DIR)

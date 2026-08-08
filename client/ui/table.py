@@ -1,5 +1,5 @@
 from pathlib import Path
-from PySide6.QtCore import Qt, Signal, QObject, QCollator, QSize
+from PySide6.QtCore import Qt, Signal, QObject, QSize
 from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
@@ -11,16 +11,12 @@ from util.format import format_seconds_to_text
 from util.icon import get_exe_icon
 from db.repository import AppInfo, AppRepository
 from util.config import Settings
+from ui.table_sort import SortableTableWidgetItem, SortController, NOT_RUNNING as _NOT_RUNNING
 
-_collator = QCollator()
-_collator.setCaseSensitivity(Qt.CaseInsensitive)
-
-_NOT_RUNNING = -1
 _BASE_TOTAL_ROLE = Qt.UserRole + 100
 _IS_WATCHED_ROLE = Qt.UserRole + 200
 _IS_PATH_EXIST_ROLE = Qt.UserRole + 201
 _LAUNCH_PATH_ROLE = Qt.UserRole + 202
-_ORDER_OVERRIDE_ROLE = Qt.UserRole + 500
 
 _LIGHT_STATUS_COLORS = {
     "path_missing": "#ef4444",
@@ -126,36 +122,6 @@ class StyledHeaderView(QHeaderView):
         super().leaveEvent(event)
 
 
-class SortableTableWidgetItem(QTableWidgetItem):
-    _ascending = True
-
-    def __lt__(self, other):
-        my_order = self.data(_ORDER_OVERRIDE_ROLE)
-        other_order = other.data(_ORDER_OVERRIDE_ROLE)
-        if my_order is not None and other_order is not None:
-            if SortableTableWidgetItem._ascending:
-                return my_order < other_order
-            return my_order > other_order
-
-        my_val = self.data(Qt.UserRole)
-        other_val = other.data(Qt.UserRole)
-
-        if my_val is not None and other_val is not None:
-            my_na = (my_val == _NOT_RUNNING)
-            other_na = (other_val == _NOT_RUNNING)
-            if my_na != other_na:
-                if my_na:
-                    return not SortableTableWidgetItem._ascending
-                return SortableTableWidgetItem._ascending
-            if my_na and other_na:
-                return False
-            try:
-                return float(my_val) < float(other_val)
-            except (TypeError, ValueError):
-                pass
-        return _collator.compare(self.text(), other.text()) < 0
-
-
 class AppTableManager(QObject):
     detail_requested = Signal(str)
     launch_requested = Signal(str)
@@ -173,8 +139,8 @@ class AppTableManager(QObject):
         self._is_dark = False
         self._status_colors = dict(_LIGHT_STATUS_COLORS)
         self._header = None
-        self._sort_preserved = False
         self._setup_table()
+        self._sort = SortController(self.table, self._settings)
 
     def set_dark_mode(self, is_dark: bool):
         self._is_dark = is_dark
@@ -235,11 +201,6 @@ class AppTableManager(QObject):
         self.table.setAlternatingRowColors(True)
         self.table.setIconSize(QSize(20, 20))
 
-        self.table.setSortingEnabled(True)
-        self.table.horizontalHeader().sortIndicatorChanged.connect(self._on_sort_indicator_changed)
-        self.table.horizontalHeader().sortIndicatorChanged.connect(self._save_sort_preference)
-        self.table.horizontalHeader().sectionClicked.connect(self._clear_sort_override)
-
         header.setSectionsMovable(True)
         header.setDragEnabled(True)
         header.sectionMoved.connect(self._save_column_order)
@@ -263,16 +224,8 @@ class AppTableManager(QObject):
     def refresh(self, apps: List[AppInfo], skip_width_hint: bool = False, preserve_sort: bool = False):
         self._last_apps = apps
         self.table.setUpdatesEnabled(False)
-        self.table.setSortingEnabled(False)
-        if preserve_sort:
-            _hdr = self.table.horizontalHeader()
-            _preserve_col = _hdr.sortIndicatorSection()
-            _preserve_order = _hdr.sortIndicatorOrder()
-            _order = []
-            for _r in range(self.table.rowCount()):
-                _ni = self.table.item(_r, 2)
-                if _ni:
-                    _order.append(_ni.data(Qt.UserRole))
+        self._sort.begin_refresh()
+        captured = self._sort.capture_order() if preserve_sort else None
         self.table.setRowCount(0)
         for app in apps:
             row = self.table.rowCount()
@@ -340,26 +293,7 @@ class AppTableManager(QObject):
             item_life.setData(_BASE_TOTAL_ROLE, app.total_lifetime_seconds)
             self.table.setItem(row, 8, item_life)
 
-        if preserve_sort:
-            self._preserve_col = _preserve_col
-            _order_index = {exe_path: i for i, exe_path in enumerate(_order)}
-            for _r in range(self.table.rowCount()):
-                _ni = self.table.item(_r, 2)
-                if not _ni:
-                    continue
-                _idx = _order_index.get(_ni.data(Qt.UserRole))
-                if _idx is not None:
-                    _si = self.table.item(_r, _preserve_col)
-                    if _si:
-                        _si.setData(_ORDER_OVERRIDE_ROLE, _idx)
-            SortableTableWidgetItem._ascending = (_preserve_order == Qt.AscendingOrder)
-            self.table.sortItems(_preserve_col, _preserve_order)
-            self.table.setSortingEnabled(False)
-            self._sort_preserved = True
-        else:
-            self._sort_preserved = False
-            self._clear_override_keys()
-            self._restore_sort()
+        self._sort.apply_after_refresh(preserve_sort, captured)
         self._adjust_name_column_width()
         self.table.setUpdatesEnabled(True)
         if not skip_width_hint:
@@ -468,9 +402,7 @@ class AppTableManager(QObject):
                     item_total_life.setText(format_seconds_to_text(final_life))
                     item_total_focus.setData(Qt.UserRole, final_focus)
                     item_total_life.setData(Qt.UserRole, final_life)
-        if not getattr(self, "_sort_preserved", False):
-            self._clear_override_keys()
-            self.table.setSortingEnabled(True)
+        self._sort.apply_after_status_update()
         self.table.setUpdatesEnabled(True)
 
     def set_row_watched_state(self, exe_path: str, watched: bool):
@@ -633,60 +565,8 @@ class AppTableManager(QObject):
             return item.data(Qt.UserRole)
         return ""
 
-    def _on_sort_indicator_changed(self, column, order):
-        SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
-
-    def _save_sort_preference(self, column: int, order):
-        if not self._settings:
-            return
-        self._settings.set("tableSortColumn", column)
-        self._settings.set("tableSortOrder", "asc" if order == Qt.AscendingOrder else "desc")
-
-    def _restore_sort(self):
-        if not self._settings:
-            self.table.setSortingEnabled(True)
-            return
-        col = self._settings.get("tableSortColumn")
-        order_str = self._settings.get("tableSortOrder")
-        if col is not None and order_str is not None:
-            try:
-                col = int(col)
-                # 列迁移：图标列插入后，旧排序列 >= 1 的索引 +1（仅一次）
-                if col >= 1 and not self._settings.get("_col_migrated"):
-                    col += 1
-                    self._settings.set("tableSortColumn", col)
-                    self._settings.set("_col_migrated", True)
-                if 0 <= col < self.table.columnCount():
-                    order = Qt.AscendingOrder if order_str == "asc" else Qt.DescendingOrder
-                    SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
-                    self.table.sortItems(col, order)
-            except (TypeError, ValueError):
-                pass
-        self.table.setSortingEnabled(True)
-
-    def _clear_override_keys(self):
-        preserve_col = getattr(self, "_preserve_col", 2)
-        for _r in range(self.table.rowCount()):
-            _si = self.table.item(_r, preserve_col)
-            if _si:
-                _si.setData(_ORDER_OVERRIDE_ROLE, None)
-
-    def _clear_sort_override(self, column):
-        if getattr(self, "_sort_preserved", False):
-            self._sort_preserved = False
-            self._clear_override_keys()
-            hdr = self.table.horizontalHeader()
-            if hdr.sortIndicatorSection() == column:
-                new_order = Qt.DescendingOrder if hdr.sortIndicatorOrder() == Qt.AscendingOrder else Qt.AscendingOrder
-            else:
-                new_order = Qt.AscendingOrder
-            self.table.setSortingEnabled(True)
-            self.table.sortByColumn(column, new_order)
-
     def cancel_sort_preserve(self):
-        if getattr(self, "_sort_preserved", False):
-            self._sort_preserved = False
-            self._clear_override_keys()
+        self._sort.unfreeze()
 
     def _adjust_name_column_width(self):
         name_col = 2
