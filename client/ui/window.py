@@ -653,7 +653,6 @@ class Mywindow(QMainWindow):
     def open_settings_dialog(self):
         total_runtime = self._settings.get("appTotalRuntime", 0)
         SettingsDialog(self, self._app_start_time, total_runtime).exec()
-        self._apply_table_zoom_from_settings()
 
     def _apply_table_zoom_from_settings(self):
         zoom = int(self._settings.get("tableZoom", 100))

@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, Signal, QObject, QSize
 from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMenu, QMessageBox, QWidget, QHBoxLayout, QLabel, QApplication
+    QMenu, QMessageBox
 )
 
 from typing import List
