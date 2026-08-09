@@ -20,7 +20,24 @@ from util.format import format_seconds_to_text
 
 
 class StepSlider(QSlider):
-    pass
+    _SNAP = 5
+
+    def _snap(self, value):
+        lo, hi = self.minimum(), self.maximum()
+        return max(lo, min(hi, round(value / self._SNAP) * self._SNAP))
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        if self.isSliderDown():
+            snapped = self._snap(self.value())
+            if snapped != self.value():
+                self.setValue(snapped)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        snapped = self._snap(self.value())
+        if snapped != self.value():
+            self.setValue(snapped)
 
 
 class ZoomDialog(QDialog):
@@ -48,7 +65,7 @@ class ZoomDialog(QDialog):
         row = QHBoxLayout()
         self.slider = StepSlider(Qt.Horizontal)
         self.slider.setRange(75, 200)
-        self.slider.setSingleStep(1)
+        self.slider.setSingleStep(5)
         self.slider.setPageStep(25)
         self.slider.setTickPosition(QSlider.TicksBelow)
         self.slider.setTickInterval(25)
@@ -57,7 +74,7 @@ class ZoomDialog(QDialog):
 
         self.spinbox = QSpinBox()
         self.spinbox.setRange(75, 200)
-        self.spinbox.setSingleStep(1)
+        self.spinbox.setSingleStep(5)
         self.spinbox.setSuffix("%")
         self.spinbox.setValue(self._original_zoom)
         self.spinbox.setFixedWidth(80)
