@@ -20,11 +20,7 @@ from util.format import format_seconds_to_text
 
 
 class StepSlider(QSlider):
-    def mouseReleaseEvent(self, event):
-        super().mouseReleaseEvent(event)
-        snapped = round(self.value() / 25) * 25
-        if snapped != self.value():
-            self.setValue(snapped)
+    pass
 
 
 class ZoomDialog(QDialog):
@@ -52,15 +48,16 @@ class ZoomDialog(QDialog):
         row = QHBoxLayout()
         self.slider = StepSlider(Qt.Horizontal)
         self.slider.setRange(75, 200)
-        self.slider.setSingleStep(25)
+        self.slider.setSingleStep(1)
         self.slider.setPageStep(25)
         self.slider.setTickPosition(QSlider.TicksBelow)
         self.slider.setTickInterval(25)
+        self.slider.setMinimumHeight(24)
         self.slider.setValue(self._original_zoom)
 
         self.spinbox = QSpinBox()
         self.spinbox.setRange(75, 200)
-        self.spinbox.setSingleStep(25)
+        self.spinbox.setSingleStep(1)
         self.spinbox.setSuffix("%")
         self.spinbox.setValue(self._original_zoom)
         self.spinbox.setFixedWidth(80)
@@ -98,7 +95,7 @@ class ZoomDialog(QDialog):
         self.spinbox.blockSignals(True)
         self.spinbox.setValue(value)
         self.spinbox.blockSignals(False)
-        self._apply_live_zoom(value, live_preview=True)
+        self._apply_live_zoom(value)
         self._pending_zoom = value
         self._debounce_timer.start()
 
@@ -106,26 +103,26 @@ class ZoomDialog(QDialog):
         self.slider.blockSignals(True)
         self.slider.setValue(value)
         self.slider.blockSignals(False)
-        self._apply_live_zoom(value, live_preview=True)
+        self._apply_live_zoom(value)
         self._pending_zoom = value
         self._debounce_timer.start()
 
     def _apply_full_zoom(self):
-        self._apply_live_zoom(self._pending_zoom, live_preview=False)
+        self._apply_live_zoom(self._pending_zoom)
 
-    def _apply_live_zoom(self, value, live_preview=False):
+    def _apply_live_zoom(self, value):
         if self._main_window and hasattr(self._main_window, 'table_manager'):
-            self._main_window.table_manager.apply_zoom(value / 100.0, live_preview)
+            self._main_window.table_manager.apply_zoom(value / 100.0)
 
     def _on_accept(self):
         self._debounce_timer.stop()
-        self._apply_live_zoom(self.slider.value(), live_preview=False)
+        self._apply_live_zoom(self.slider.value())
         Settings().set("tableZoom", self.slider.value())
         self.accept()
 
     def _on_reject(self):
         self._debounce_timer.stop()
-        self._apply_live_zoom(self._original_zoom, live_preview=False)
+        self._apply_live_zoom(self._original_zoom)
         self.reject()
 
 
@@ -532,7 +529,7 @@ class SettingsDialog(QDialog):
         if new_format != Settings().get("timeFormat", "english"):
             Settings().set("timeFormat", new_format)
             if hasattr(self.parent(), "_refresh_table"):
-                self.parent()._refresh_table()
+                self.parent()._refresh_table(skip_width_hint=True)
 
         self.accept()
 

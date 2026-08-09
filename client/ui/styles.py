@@ -639,19 +639,19 @@ QToolTip {
 
 /* ---- 滑块 ---- */
 QSlider::groove:horizontal {
-    height: 4px;
+    height: 8px;
     background: #e2e8f0;
-    border-radius: 2px;
+    border-radius: 4px;
 }
 QSlider::sub-page:horizontal {
     background: #3b82f6;
-    border-radius: 2px;
+    border-radius: 4px;
 }
 QSlider::handle:horizontal {
-    width: 16px;
-    height: 16px;
-    margin: -6px 0;
-    border-radius: 8px;
+    width: 20px;
+    height: 20px;
+    margin: -7px 0;
+    border-radius: 10px;
     background: #3b82f6;
 }
 QSlider::handle:horizontal:hover {
@@ -1313,19 +1313,19 @@ QToolTip {
 
 /* ---- 滑块 ---- */
 QSlider::groove:horizontal {
-    height: 4px;
+    height: 8px;
     background: #475569;
-    border-radius: 2px;
+    border-radius: 4px;
 }
 QSlider::sub-page:horizontal {
     background: #3b82f6;
-    border-radius: 2px;
+    border-radius: 4px;
 }
 QSlider::handle:horizontal {
-    width: 16px;
-    height: 16px;
-    margin: -6px 0;
-    border-radius: 8px;
+    width: 20px;
+    height: 20px;
+    margin: -7px 0;
+    border-radius: 10px;
     background: #3b82f6;
 }
 QSlider::handle:horizontal:hover {

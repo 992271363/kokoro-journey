@@ -24,9 +24,9 @@ def apply_theme(mode: str):
     if mode == "system":
         resolved = get_system_theme()
 
-    if resolved == "dark":
-        QApplication.instance().setStyleSheet(MODERN_DARK_QSS)
-    else:
-        QApplication.instance().setStyleSheet(MODERN_LIGHT_QSS)
+    app = QApplication.instance()
+    target = MODERN_DARK_QSS if resolved == "dark" else MODERN_LIGHT_QSS
+    if app.styleSheet() != target:
+        app.setStyleSheet(target)
 
     Settings().set("themeMode", mode)

@@ -25,6 +25,8 @@ _LIGHT_STATUS_COLORS = {
     "focused": "#22c55e",
     "running": "#3b82f6",
 }
+
+_STATUS_VALUE_TO_KEY = {1: "running", 2: "focused", 0: "not_running", -1: "not_watched", -2: "path_missing"}
 _DARK_STATUS_COLORS = {
     "path_missing": "#ef4444",
     "not_watched": "#64748b",
@@ -147,32 +149,51 @@ class AppTableManager(QObject):
         self._status_colors = dict(_DARK_STATUS_COLORS if is_dark else _LIGHT_STATUS_COLORS)
         if self._header:
             self._header.set_dark_mode(is_dark)
-        if self._last_apps:
-            self.refresh(self._last_apps, skip_width_hint=True)
+        self._repaint_status_icons()
+        self.reassert_zoom()
 
-    def apply_zoom(self, factor: float, live_preview: bool = False):
+    def _repaint_status_icons(self):
+        for row in range(self.table.rowCount()):
+            status_item = self.table.item(row, 0)
+            if status_item is None:
+                continue
+            value = status_item.data(Qt.UserRole)
+            key = _STATUS_VALUE_TO_KEY.get(value)
+            if key and key in self._status_colors:
+                status_item.setIcon(self._create_status_icon(self._status_colors[key]))
+
+    def apply_zoom(self, factor: float):
         factor = max(0.5, min(2.5, factor))
         if factor != self._zoom_factor:
             self._zoom_factor = factor
+        self._apply_zoom_style()
 
-            font = QFont(self._base_font)
-            base_size = self._base_font.pointSizeF() or 13
-            font.setPointSizeF(base_size * factor)
-            self.table.setFont(font)
-            self.table.horizontalHeader().setFont(font)
+        if self._last_apps:
+            self.refresh(self._last_apps, skip_width_hint=True)
 
-            row_h = QFontMetrics(font).height() + 12
-            icon_sz = max(8, int(round(20 * factor)))
-            icon_sz = min(icon_sz, row_h - 4)
-            self.table.setIconSize(QSize(icon_sz, icon_sz))
+    def _apply_zoom_style(self):
+        font = QFont(self._base_font)
+        pt = self._base_font.pointSizeF()
+        px = self._base_font.pixelSize()
+        factor = self._zoom_factor
+        if pt > 0:
+            font.setPointSizeF(pt * factor)
+        else:
+            base_pt = (px if px > 0 else 13) * 72.0 / 96.0
+            font.setPointSizeF(base_pt * factor)
+        self.table.setFont(font)
+        self.table.horizontalHeader().setFont(font)
 
-            self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
+        row_h = QFontMetrics(font).height() + 12
+        icon_sz = max(8, int(round(20 * factor)))
+        icon_sz = min(icon_sz, row_h - 4)
+        self.table.setIconSize(QSize(icon_sz, icon_sz))
 
-            if self._last_apps:
-                self.refresh(self._last_apps, skip_width_hint=True)
+        self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
 
-        if not live_preview:
-            self._emit_table_width_hint()
+    def reassert_zoom(self):
+        self._apply_zoom_style()
+        self._adjust_name_column_width()
 
     def _setup_table(self):
         columns = ["状态", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
@@ -224,6 +245,13 @@ class AppTableManager(QObject):
         return QIcon(pixmap)
 
     def refresh(self, apps: List[AppInfo], skip_width_hint: bool = False, preserve_sort: bool = False):
+        self._set_data(apps, preserve_sort=preserve_sort)
+        self._adjust_name_column_width()
+        self.table.setUpdatesEnabled(True)
+        if not skip_width_hint:
+            self._emit_table_width_hint()
+
+    def _set_data(self, apps: List[AppInfo], preserve_sort: bool = False):
         self._last_apps = apps
         self.table.setUpdatesEnabled(False)
         self._sort.begin_refresh()
@@ -296,10 +324,7 @@ class AppTableManager(QObject):
             self.table.setItem(row, 8, item_life)
 
         self._sort.apply_after_refresh(preserve_sort, captured)
-        self._adjust_name_column_width()
         self.table.setUpdatesEnabled(True)
-        if not skip_width_hint:
-            self._emit_table_width_hint()
 
     def update_status(self, status_data: dict):
         self.table.setUpdatesEnabled(False)

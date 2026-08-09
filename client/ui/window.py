@@ -443,6 +443,8 @@ class Mywindow(QMainWindow):
             self.statusBar().clearMessage()
 
     def _adjust_window_width(self, table_content_width: int):
+        if getattr(self, "_width_locked", False):
+            return
         margins = self._table_container.layout().contentsMargins()
         extra = margins.left() + margins.right()
         new_width = table_content_width + extra
@@ -704,6 +706,10 @@ class Mywindow(QMainWindow):
         self.statusBar().showMessage(msg, 5000)
 
     # ---- 关闭逻辑 ----
+    def showEvent(self, event):
+        self._width_locked = True
+        super().showEvent(event)
+
     def closeEvent(self, event):
         if self._is_closing:
             event.accept()
