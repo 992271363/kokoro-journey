@@ -1,12 +1,17 @@
 from PySide6.QtCore import Qt  # Qt 基础枚举/常量
 from PySide6.QtWidgets import (
-    QDialog, QTableWidget, QTableWidgetItem, QPushButton, QLineEdit,
+    QDialog, QTableWidget, QTableWidgetItem, QPushButton,
     QLabel, QVBoxLayout, QHBoxLayout, QSpacerItem, QSizePolicy,
     QHeaderView, QAbstractItemView
 )  # 批量导入所需控件和布局类
 
 from core.monitor import get_process_list  # 进程列表数据源
 from util.search import make_search_keywords, matches_search_keywords
+from ui.widgets import ChineseMenuLineEdit
+
+
+class ProcSearchEdit(ChineseMenuLineEdit):
+    """进程选择对话框搜索框：右键菜单中文化。"""
 
 
 class ProcSelectDialog(QDialog):
@@ -30,7 +35,7 @@ class ProcSelectDialog(QDialog):
         self.horizontalLayout_2.addSpacerItem(
             QSpacerItem(34, 14, QSizePolicy.Expanding, QSizePolicy.Minimum)
         )  # 水平弹簧，把搜索框顶到右边
-        self.lineEdit_search = QLineEdit()  # 搜索输入框
+        self.lineEdit_search = ProcSearchEdit()  # 搜索输入框
         self.lineEdit_search.setMaximumSize(155, 16777215)  # 限制宽度
         self.lineEdit_search.setAlignment(Qt.AlignCenter)  # 文字居中
         self.lineEdit_search.setPlaceholderText("搜索")

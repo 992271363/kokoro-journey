@@ -21,7 +21,7 @@ from core.controller import MonitorController
 from core.sync_controller import SyncController
 from util.config import Settings
 from ui.settings import CloseAskDialog, SettingsDialog
-from ui.widgets import StyledSizeGrip
+from ui.widgets import StyledSizeGrip, ChineseMenuLineEdit
 from ui.picker import PickOverlay, PickButton
 from ui.theme import get_system_theme
 from util.search import make_search_keywords, matches_search_keywords
@@ -29,6 +29,10 @@ from util.search import make_search_keywords, matches_search_keywords
 class _NoContextToolBar(QToolBar):
     def contextMenuEvent(self, event):
         pass
+
+
+class ToolbarSearchEdit(ChineseMenuLineEdit):
+    """主窗口工具栏搜索框：右键菜单中文化。"""
 
 from ui.dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
 from ui.login import LoginDialog
@@ -167,7 +171,7 @@ class Mywindow(QMainWindow):
         self._rebuild_group_buttons()
         self.group_buttons.buttonClicked.connect(self._on_group_changed)
 
-        self.search_edit = QLineEdit()
+        self.search_edit = ToolbarSearchEdit()
         self.search_edit.setPlaceholderText("搜索名称...")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setMinimumWidth(330)

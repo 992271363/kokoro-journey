@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QComboBox
+from PySide6.QtWidgets import QComboBox, QLineEdit
 
 
 class AlwaysDownComboBox(QComboBox):
@@ -49,3 +49,33 @@ class StyledSizeGrip(QSizeGrip):
         painter.drawEllipse(w - 5, h - 5 - s, d, d)
 
         painter.end()
+
+
+class ChineseMenuLineEdit(QLineEdit):
+    """QLineEdit 右键菜单中文化基类。
+
+    PySide6 中 Qt 构建标准菜单时不会把 createStandardContextMenu()
+    分派回 Python 重写，因此须再重写 contextMenuEvent 主动调用它。
+    """
+
+    _MENU_TRANSLATIONS = {
+        "Undo": "撤销",
+        "Redo": "重做",
+        "Cut": "剪切",
+        "Copy": "复制",
+        "Paste": "粘贴",
+        "Delete": "删除",
+        "Select All": "全选",
+    }
+
+    def createStandardContextMenu(self):
+        menu = super().createStandardContextMenu()
+        for action in menu.actions():
+            text = action.text().replace("&", "").split("\t")[0]
+            if text in self._MENU_TRANSLATIONS:
+                action.setText(self._MENU_TRANSLATIONS[text])
+        return menu
+
+    def contextMenuEvent(self, event):
+        menu = self.createStandardContextMenu()
+        menu.exec(event.globalPos())
