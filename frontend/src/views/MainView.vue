@@ -37,9 +37,9 @@
             <div class="app-rank">{{ String(index + 1).padStart(2, '0') }}</div>
             <div class="app-main">
               <div class="app-top-row">
-                <span class="app-name">{{ formatAppName(app.executable_name) }}</span>
+                <span class="app-name">{{ formatAppName(app.executableName) }}</span>
                 <span class="app-last-seen">{{
-                  formatRelativeTime(app.summary.last_seen_end_at)
+                  formatRelativeTime(app.summary.lastSeenEndAt)
                 }}</span>
               </div>
               <div class="app-bar-row">
@@ -55,11 +55,11 @@
                 <div class="app-durations">
                   <span class="dur-focus">
                     <i class="fas fa-crosshairs"></i>
-                    {{ formatDuration(app.summary.total_focus_time_seconds) }}
+                    {{ formatDuration(app.summary.totalFocusTimeSeconds) }}
                   </span>
                   <span class="dur-sep">/</span>
                   <span class="dur-total">{{
-                    formatDuration(app.summary.total_lifetime_seconds)
+                    formatDuration(app.summary.totalLifetimeSeconds)
                   }}</span>
                 </div>
               </div>
@@ -80,11 +80,11 @@
           <li v-for="activity in recentActivities" :key="activity.id" class="activity-item">
             <div class="activity-dot"></div>
             <div class="activity-content">
-              <span class="activity-name">{{ formatAppName(activity.process_name) }}</span>
+              <span class="activity-name">{{ formatAppName(activity.processName) }}</span>
               <span class="activity-meta">
-                {{ formatDuration(activity.total_lifetime_seconds) }} &nbsp;·&nbsp;
-                {{ formatTime(activity.session_start_time) }} –
-                {{ formatTime(activity.session_end_time) }}
+                {{ formatDuration(activity.totalLifetimeSeconds) }} &nbsp;·&nbsp;
+                {{ formatTime(activity.sessionStartTime) }} –
+                {{ formatTime(activity.sessionEndTime) }}
               </span>
             </div>
           </li>
@@ -113,23 +113,23 @@ interface DashboardStats {
 }
 
 interface AppSummary {
-  last_seen_end_at: string
-  total_lifetime_seconds: number
-  total_focus_time_seconds: number
+  lastSeenEndAt: string
+  totalLifetimeSeconds: number
+  totalFocusTimeSeconds: number
 }
 
 interface WatchedApplication {
   id: number
-  executable_name: string
+  executableName: string
   summary: AppSummary
 }
 
 interface ProcessSession {
   id: number
-  process_name: string
-  session_start_time: string
-  session_end_time: string
-  total_lifetime_seconds: number
+  processName: string
+  sessionStartTime: string
+  sessionEndTime: string
+  totalLifetimeSeconds: number
 }
 
 const username = ref<string>(authStore.username ?? 'User')
@@ -179,10 +179,10 @@ const formatRelativeTime = (iso: string): string => {
 }
 
 const getFocusRatio = (summary: AppSummary): number => {
-  if (!summary.total_lifetime_seconds) return 0
+  if (!summary.totalLifetimeSeconds) return 0
   return Math.min(
     100,
-    Math.round((summary.total_focus_time_seconds / summary.total_lifetime_seconds) * 100),
+    Math.round((summary.totalFocusTimeSeconds / summary.totalLifetimeSeconds) * 100),
   )
 }
 

@@ -11,7 +11,7 @@ router = APIRouter(
     tags=["Dashboard"]
 )
 
-@router.get("/stats")
+@router.get("/stats", response_model=schemas.DashboardStats)
 def get_dashboard_stats(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user)
@@ -56,13 +56,13 @@ def get_dashboard_stats(
         .scalar() or 0
 
     return {
-        "todayFocusSeconds": int(today_focus_seconds),
-        "totalAppsTracked": total_apps,
-        "mostUsedAppToday": most_used_app_name,
-        "thisWeekLifetimeSeconds": int(week_lifetime)
+        "today_focus_seconds": int(today_focus_seconds),
+        "total_apps_tracked": total_apps,
+        "most_used_app_today": most_used_app_name,
+        "this_week_lifetime_seconds": int(week_lifetime)
     }
 
-@router.get("/apps")
+@router.get("/apps", response_model=List[schemas.TopAppItem])
 def get_top_apps(
     limit: int = 10,
     db: Session = Depends(database.get_db),
@@ -91,7 +91,7 @@ def get_top_apps(
         })
     return result
 
-@router.get("/recent-activity")
+@router.get("/recent-activity", response_model=List[schemas.RecentActivityItem])
 def get_recent_activity(
     limit: int = 5,
     db: Session = Depends(database.get_db),

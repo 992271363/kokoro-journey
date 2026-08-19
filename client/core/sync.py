@@ -34,24 +34,24 @@ def get_and_prepare_sync_data():
             activities_data = []
             for activity in session.activities:
                 activities_data.append({
-                    "window_title": activity.window_title,
-                    "focus_start_time": _to_utc_iso(activity.focus_start_time),
-                    "focus_end_time": _to_utc_iso(activity.focus_end_time),
-                    "focus_duration_seconds": activity.focus_duration_seconds
+                    "windowTitle": activity.window_title,
+                    "focusStartTime": _to_utc_iso(activity.focus_start_time),
+                    "focusEndTime": _to_utc_iso(activity.focus_end_time),
+                    "focusDurationSeconds": activity.focus_duration_seconds
                 })
             data_to_send.append({
                 "uid": app.uid,
-                "executable_name": app.executable_name,
-                "executable_path": app.executable_path,
-                "launch_path": app.launch_path,
-                "is_watched": app.is_watched,
-                "is_process_path_different": app.is_process_path_different,
-                "is_path_exist": app.is_path_exist,
-                "process_name": session.process_name,
-                "session_start_time": _to_utc_iso(session.session_start_time),
-                "session_end_time": _to_utc_iso(session.session_end_time),
-                "total_lifetime_seconds": session.total_lifetime_seconds,
-                "total_focus_seconds": session.total_focus_seconds,
+                "executableName": app.executable_name,
+                "executablePath": app.executable_path,
+                "launchPath": app.launch_path,
+                "isWatched": app.is_watched,
+                "isProcessPathDifferent": app.is_process_path_different,
+                "isPathExist": app.is_path_exist,
+                "processName": session.process_name,
+                "sessionStartTime": _to_utc_iso(session.session_start_time),
+                "sessionEndTime": _to_utc_iso(session.session_end_time),
+                "totalLifetimeSeconds": session.total_lifetime_seconds,
+                "totalFocusSeconds": session.total_focus_seconds,
                 "activities": activities_data
             })
 
@@ -91,8 +91,8 @@ def get_and_prepare_daily_data():
             data_to_send.append({
                 "uid": d.application.uid,
                 "date": d.date.isoformat(),
-                "lifetime_seconds": d.lifetime_seconds,
-                "focus_seconds": d.focus_seconds
+                "lifetimeSeconds": d.lifetime_seconds,
+                "focusSeconds": d.focus_seconds
             })
 
         print(f"[Sync Util] 发现 {len(data_to_send)} 条每日统计待同步，准备上传...")
