@@ -37,6 +37,16 @@ def create_db_and_tables():
         except Exception:
             pass
 
+        # 分组排序列（存量分组按 id 初始化，保持原有顺序）
+        try:
+            conn.execute(text(
+                "ALTER TABLE app_groups ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.execute(text("UPDATE app_groups SET sort_order = id"))
+            conn.commit()
+        except Exception:
+            pass
+
 
 def delete_database():
     if os.path.exists(db_path):

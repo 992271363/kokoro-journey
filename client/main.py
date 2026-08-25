@@ -7,6 +7,43 @@ if "__compiled__" in globals() and not getattr(sys, "frozen", False):
 
 os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
 
+
+def _rebuild_quiet_output():
+    """windowed 打包下 sys.stdout/stderr 不可用（Nuitka 可能给哑流对象而非
+    None）；只要日志控制台以管道提供了有效 fd1/fd2 就强制接管为静默安全的
+    写入口——管道断裂（黑窗被关）后写入静默丢弃，绝不抛异常影响主程序。"""
+    if not getattr(sys, "frozen", False):
+        return
+
+    class _QuietWriter:
+        def __init__(self, fd):
+            self._fd = fd
+
+        def write(self, s):
+            if self._fd is not None:
+                try:
+                    os.write(self._fd, s.encode("utf-8", "replace"))
+                except OSError:
+                    self._fd = None
+            return len(s)
+
+        def flush(self):
+            pass
+
+        def isatty(self):
+            return False
+
+    import msvcrt
+    for name, fd_no in (("stdout", 1), ("stderr", 2)):
+        try:
+            msvcrt.get_osfhandle(fd_no)
+        except (OSError, ValueError):
+            continue
+        setattr(sys, name, _QuietWriter(fd_no))
+
+
+_rebuild_quiet_output()
+
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # Qt 应用入口类
 from PySide6.QtCore import QLockFile, Qt  # Qt 提供的跨平台文件锁工具
 

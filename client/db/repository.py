@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import joinedload
-from sqlalchemy import distinct
+from sqlalchemy import distinct, func
 
 from db.database import SessionLocal
 from db.models import (
@@ -77,8 +77,23 @@ class AppRepository:
     def get_all_groups() -> List[Tuple[int, str]]:
         db = SessionLocal()
         try:
-            groups = db.query(AppGroup).all()
+            groups = db.query(AppGroup).order_by(AppGroup.sort_order, AppGroup.id).all()
             return [(g.id, g.name) for g in groups]
+        finally:
+            db.close()
+
+    @staticmethod
+    def set_groups_order(ordered_ids: List[int]) -> None:
+        """按给定 id 顺序持久化分组排序。"""
+        if not ordered_ids:
+            return
+        db = SessionLocal()
+        try:
+            for idx, gid in enumerate(ordered_ids):
+                db.query(AppGroup).filter_by(id=gid).update({"sort_order": idx})
+            db.commit()
+        except Exception:
+            db.rollback()
         finally:
             db.close()
 
@@ -89,7 +104,8 @@ class AppRepository:
             existing = db.query(AppGroup).filter_by(name=name).first()
             if existing:
                 return None
-            group = AppGroup(name=name)
+            max_order = db.query(func.max(AppGroup.sort_order)).scalar() or 0
+            group = AppGroup(name=name, sort_order=max_order + 1)
             db.add(group)
             db.commit()
             return group.id

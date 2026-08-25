@@ -308,6 +308,7 @@ class AppGroup(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
 
     applications = relationship(
         "WatchedApplication",

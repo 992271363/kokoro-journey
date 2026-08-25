@@ -6,8 +6,8 @@ import psutil
 import win32gui
 import win32con
 import win32process
-from PySide6.QtCore import Qt, QTimer, QSize, QObject, QEvent, Signal, QByteArray
-from PySide6.QtGui import QAction, QIcon, QImage, QColor, QPainter, QPixmap
+from PySide6.QtCore import Qt, QTimer, QSize, QObject, QEvent, Signal, QByteArray, QPoint, QMimeData
+from PySide6.QtGui import QAction, QIcon, QImage, QColor, QPainter, QPixmap, QDrag, QCursor
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QDialog, QPushButton, QLabel,
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
@@ -33,6 +33,65 @@ class _NoContextToolBar(QToolBar):
 
 class ToolbarSearchEdit(ChineseMenuLineEdit):
     """主窗口工具栏搜索框：右键菜单中文化。"""
+
+
+class GroupChipButton(QPushButton):
+    """分组按钮：支持拖动排序（仅分组按钮启用，固定按钮不启用）。"""
+
+    _MIME = "application/x-kokoro-group-id"
+
+    def __init__(self, text, group_id, draggable, window):
+        super().__init__(text)
+        self._group_id = group_id
+        self._win = window
+        self._drag_start = None
+        self.setCheckable(True)
+        self.setFixedHeight(40)
+        self.setProperty("group_btn", True)
+        self.setProperty("group_id", group_id)
+        self.setAcceptDrops(draggable)
+        self._draggable = draggable
+
+    def mousePressEvent(self, event):
+        if self._draggable and event.button() == Qt.LeftButton:
+            self._drag_start = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._draggable and self._drag_start is not None
+                and event.buttons() & Qt.LeftButton
+                and (event.position().toPoint() - self._drag_start).manhattanLength()
+                >= QApplication.startDragDistance()):
+            self._start_drag()
+            self._drag_start = None
+            return
+        super().mouseMoveEvent(event)
+
+    def _start_drag(self):
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(self._MIME, str(self._group_id).encode())
+        drag.setMimeData(mime)
+        pix = self.grab()
+        drag.setPixmap(pix)
+        drag.setHotSpot(self._drag_start)
+        drag.exec(Qt.MoveAction)
+
+    def dragEnterEvent(self, event):
+        if event.source() is not self and isinstance(event.source(), GroupChipButton):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        src = event.source()
+        if not isinstance(src, GroupChipButton) or src is self:
+            return
+        self._win._move_group_button(src, self)
+        event.acceptProposedAction()
 
 from ui.dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
 from ui.login import LoginDialog
@@ -353,7 +412,7 @@ class Mywindow(QMainWindow):
         self.close()
 
     def _rebuild_group_buttons(self):
-        """重建分组筛选按钮。"""
+        """重建分组筛选按钮。「全部」固定首位不可拖，分组按钮可拖动排序。"""
         for btn in self.group_buttons.buttons():
             self.group_buttons.removeButton(btn)
         while self._group_btn_layout.count():
@@ -363,30 +422,23 @@ class Mywindow(QMainWindow):
 
         groups = AppRepository.get_all_groups()
 
-        # 「全部」按钮
-        btn_all = QPushButton("全部")
-        btn_all.setCheckable(True)
-        btn_all.setFixedHeight(40)
-        btn_all.setProperty("group_btn", True)
-        btn_all.setProperty("group_id", None)
+        # 「全部」按钮（固定，颜色更深以区分）
+        btn_all = GroupChipButton("全部", None, draggable=False, window=self)
+        btn_all.setProperty("fixed_btn", True)
         self.group_buttons.addButton(btn_all)
         self._group_btn_layout.addWidget(btn_all)
         if self._current_group_id is None:
             btn_all.setChecked(True)
 
-        # 各分组按钮
+        # 各分组按钮（可拖动排序）
         for gid, gname in groups:
-            btn = QPushButton(gname)
-            btn.setCheckable(True)
-            btn.setFixedHeight(40)
-            btn.setProperty("group_btn", True)
-            btn.setProperty("group_id", gid)
+            btn = GroupChipButton(gname, gid, draggable=True, window=self)
             self.group_buttons.addButton(btn)
             self._group_btn_layout.addWidget(btn)
             if self._current_group_id == gid:
                 btn.setChecked(True)
 
-        # [+按钮] 管理分组
+        # [+按钮] 管理分组（固定末尾）
         btn_manage = QPushButton("+")
         btn_manage.setFixedHeight(40)
         btn_manage.setFixedWidth(40)
@@ -394,6 +446,32 @@ class Mywindow(QMainWindow):
         btn_manage.setProperty("group_btn", True)
         btn_manage.clicked.connect(self._open_group_dialog)
         self._group_btn_layout.addWidget(btn_manage)
+
+    def _move_group_button(self, src: "GroupChipButton", dst: "GroupChipButton"):
+        """把 src 按钮移动到 dst 按钮的位置，并持久化新顺序。"""
+        layout = self._group_btn_layout
+        count = layout.count()
+        if count < 2:
+            return
+        src_idx = dst_idx = -1
+        for i in range(count):
+            w = layout.itemAt(i).widget()
+            if w is src:
+                src_idx = i
+            elif w is dst:
+                dst_idx = i
+        if src_idx < 0 or dst_idx < 0 or src_idx == dst_idx:
+            return
+        layout.removeWidget(src)
+        layout.insertWidget(dst_idx, src)
+        # 收集分组按钮（跳过「全部」与「+」）的新顺序并落库
+        ordered_ids = []
+        for i in range(layout.count()):
+            w = layout.itemAt(i).widget()
+            gid = w.property("group_id") if w else None
+            if isinstance(w, GroupChipButton) and gid is not None:
+                ordered_ids.append(gid)
+        AppRepository.set_groups_order(ordered_ids)
 
     def _on_group_changed(self, btn):
         """分组按钮点击，切换筛选。"""

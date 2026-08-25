@@ -160,6 +160,19 @@ QPushButton[group_btn="true"]:checked:hover {
     border-color: #2563eb;
 }
 
+/* 「全部」固定按钮：比可拖动分组按钮颜色更深，以示区分 */
+QPushButton[group_btn="true"][fixed_btn="true"] {
+    background-color: #cbd5e1;
+    color: #1e293b;
+    border-color: #94a3b8;
+    font-weight: 600;
+}
+
+QPushButton[group_btn="true"][fixed_btn="true"]:hover {
+    background-color: #b6c2d4;
+    border-color: #64748b;
+}
+
 /* 监控暂停按钮（绿色 = 暂停中，蓝色 = 默认监控中） */
 QPushButton[paused="true"] {
     background-color: #16a34a;
@@ -826,6 +839,19 @@ QPushButton[group_btn="true"]:checked {
 QPushButton[group_btn="true"]:checked:hover {
     background-color: #2563eb;
     border-color: #2563eb;
+}
+
+/* 「全部」固定按钮：深色主题下反向提亮一档，与可拖动分组按钮区分 */
+QPushButton[group_btn="true"][fixed_btn="true"] {
+    background-color: #475569;
+    color: #f1f5f9;
+    border-color: #64748b;
+    font-weight: 600;
+}
+
+QPushButton[group_btn="true"][fixed_btn="true"]:hover {
+    background-color: #64748b;
+    border-color: #94a3b8;
 }
 
 /* 监控暂停按钮（绿色 = 暂停中，蓝色 = 默认监控中） */
