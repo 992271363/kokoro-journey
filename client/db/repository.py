@@ -270,6 +270,24 @@ class AppRepository:
             db.close()
 
     @staticmethod
+    def set_launch_path(exe_path: str, launch_path: str) -> bool:
+        """手动修改应用的启动路径（按监控唯一键 executable_path 定位）。"""
+        exe_path = normalize_exe_path(exe_path)
+        db = SessionLocal()
+        try:
+            app = db.query(WatchedApplication).filter_by(executable_path=exe_path).first()
+            if not app:
+                return False
+            app.launch_path = launch_path
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
     def set_app_watched(exe_path: str, watched: bool) -> bool:
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()

@@ -1,12 +1,14 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLabel, QFrame, QDialogButtonBox,
-    QVBoxLayout, QProgressBar, QPushButton, QHBoxLayout, QFileDialog
+    QVBoxLayout, QProgressBar, QPushButton, QHBoxLayout, QFileDialog,
+    QMessageBox
 )
 from PySide6.QtGui import QFont
 import os
 
 from db.models import WatchedApplication
+from db.repository import AppRepository
 from util.format import format_seconds_to_text, never_text
 from ui.proc import ProcSelectDialog
 
@@ -75,6 +77,8 @@ class AppDetailDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(f"详细信息 - {os.path.splitext(app_data.executable_name)[0]}")
         self.resize(400, 300)
+        self.app_data = app_data
+        self.launch_path_changed = False
 
         layout = QFormLayout(self)
         layout.setLabelAlignment(Qt.AlignRight)
@@ -86,8 +90,21 @@ class AppDetailDialog(QDialog):
         line.setFrameShape(QFrame.HLine)
         layout.addRow(line)
 
-        layout.addRow("进程路径:", QLabel(app_data.executable_path))
-        layout.addRow("启动路径:", QLabel(app_data.launch_path or app_data.executable_path))
+        proc_label = QLabel(app_data.executable_path)
+        proc_label.setWordWrap(True)
+        layout.addRow("进程路径:", proc_label)
+
+        # 启动路径：展示 + 手动修改
+        self.launch_label = QLabel()
+        self.launch_label.setWordWrap(True)
+        self._launch_row = QHBoxLayout()
+        self._launch_row.addWidget(self.launch_label, stretch=1)
+        self.btn_edit_launch = QPushButton("修改")
+        self.btn_edit_launch.setToolTip("手动选择该应用的启动文件")
+        self.btn_edit_launch.clicked.connect(self._on_edit_launch_path)
+        self._launch_row.addWidget(self.btn_edit_launch)
+        layout.addRow("启动路径:", self._launch_row)
+        self._refresh_launch_label()
 
         line_path = QFrame()
         line_path.setFrameShape(QFrame.HLine)
@@ -117,6 +134,27 @@ class AppDetailDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+
+    def _refresh_launch_label(self):
+        path = self.app_data.launch_path or self.app_data.executable_path
+        self.launch_label.setText(path)
+        self.launch_label.setToolTip(path)
+
+    def _on_edit_launch_path(self):
+        current = self.app_data.launch_path or self.app_data.executable_path
+        start_dir = os.path.dirname(current) if os.path.isfile(current) else ""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择启动文件", start_dir,
+            "可执行文件 (*.exe *.bat *.cmd *.ps1 *.vbs);;所有文件 (*.*)"
+        )
+        if not file_path:
+            return
+        if AppRepository.set_launch_path(self.app_data.executable_path, file_path):
+            self.app_data.launch_path = file_path
+            self.launch_path_changed = True
+            self._refresh_launch_label()
+        else:
+            QMessageBox.warning(self, "提示", "启动路径保存失败，请重试。")
 
 
 class ClosingDialog(QDialog):

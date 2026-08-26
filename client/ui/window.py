@@ -558,11 +558,16 @@ class Mywindow(QMainWindow):
         if app_data:
             dialog = AppDetailDialog(app_data, self)
             dialog.exec()
+            if dialog.launch_path_changed:
+                self._refresh_table(skip_width_hint=True)
 
     def _on_launch_requested(self, launch_path: str):
-        import os
         try:
+            old_cwd = os.getcwd()
+            if os.path.isfile(launch_path):
+                os.chdir(os.path.dirname(launch_path))
             os.startfile(launch_path)
+            os.chdir(old_cwd)
         except Exception:
             pass
 
