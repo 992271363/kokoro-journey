@@ -309,6 +309,7 @@ class AppGroup(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False, unique=True)
     sort_order = Column(Integer, nullable=False, default=0)
+    color = Column(String, nullable=True)  # 分组标识色(hex), NULL=无色
 
     applications = relationship(
         "WatchedApplication",

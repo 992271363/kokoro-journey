@@ -47,6 +47,15 @@ def create_db_and_tables():
         except Exception:
             pass
 
+        # 分组颜色列（标识色）
+        try:
+            conn.execute(text(
+                "ALTER TABLE app_groups ADD COLUMN color VARCHAR"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+
 
 def delete_database():
     if os.path.exists(db_path):

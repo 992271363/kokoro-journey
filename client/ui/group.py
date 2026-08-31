@@ -1,4 +1,5 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QColor, QPainter, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QLineEdit, QMessageBox, QDialogButtonBox,
@@ -74,9 +75,20 @@ class GroupDialog(QDialog):
     def _refresh_list(self):
         self.list_widget.clear()
         groups = AppRepository.get_all_groups()
-        for gid, gname in groups:
+        for gid, gname, color in groups:
             item = QListWidgetItem(gname)
             item.setData(Qt.UserRole, gid)
+            if color:
+                pix = QPixmap(12, 12)
+                pix.fill(Qt.transparent)
+                painter = QPainter(pix)
+                painter.setRenderHint(QPainter.Antialiasing)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(color))
+                painter.drawEllipse(1, 1, 10, 10)
+                painter.end()
+                item.setIcon(QIcon(pix))
+                item.setIconSize(QSize(16, 16))
             self.list_widget.addItem(item)
 
     def _on_add(self):

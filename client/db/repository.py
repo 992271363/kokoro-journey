@@ -74,13 +74,30 @@ class AppRepository:
             db.close()
 
     @staticmethod
-    def get_all_groups() -> List[Tuple[int, str]]:
+    def get_all_groups() -> List[Tuple[int, str, Optional[str]]]:
         db = SessionLocal()
         try:
             groups = db.query(AppGroup).order_by(AppGroup.sort_order, AppGroup.id).all()
-            return [(g.id, g.name) for g in groups]
+            return [(g.id, g.name, g.color) for g in groups]
         finally:
             db.close()
+
+    @staticmethod
+    def set_group_color(group_id: int, color: Optional[str]) -> bool:
+        if color is None:
+            color = None
+        elif color.startswith("#"):
+            color = color
+        else:
+            color = f"#{color}"
+        db = SessionLocal()
+        try:
+            db.query(AppGroup).filter_by(id=group_id).update({"color": color})
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
 
     @staticmethod
     def set_groups_order(ordered_ids: List[int]) -> None:

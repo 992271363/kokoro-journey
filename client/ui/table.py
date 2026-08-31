@@ -492,11 +492,27 @@ class AppTableManager(QObject):
         group_menu.addSeparator()
         all_groups = AppRepository.get_all_groups()
         current_groups = [gid for gid, _ in AppRepository.get_app_groups(exe_path)]
+
+        def _dot_icon(color):
+            if not color:
+                return
+            pix = QPixmap(12, 12)
+            pix.fill(Qt.transparent)
+            painter = QPainter(pix)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(color))
+            painter.drawEllipse(1, 1, 10, 10)
+            painter.end()
+            return QIcon(pix)
+
         group_actions = {}
-        for gid, gname in all_groups:
+        for gid, gname, color in all_groups:
             act = group_menu.addAction(gname)
             act.setCheckable(True)
             act.setChecked(gid in current_groups)
+            if color:
+                act.setIcon(_dot_icon(color))
             group_actions[act] = gid
 
         # 颜色标记子菜单

@@ -6,13 +6,14 @@ import psutil
 import win32gui
 import win32con
 import win32process
+from typing import Optional
 from PySide6.QtCore import Qt, QTimer, QSize, QObject, QEvent, Signal, QByteArray, QPoint, QMimeData
 from PySide6.QtGui import QAction, QIcon, QImage, QColor, QPainter, QPixmap, QDrag, QCursor
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QDialog, QPushButton, QLabel,
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
     QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup,
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect, QInputDialog, QColorDialog, QMessageBox
 )
 
 from db.repository import AppRepository
@@ -40,7 +41,7 @@ class GroupChipButton(QPushButton):
 
     _MIME = "application/x-kokoro-group-id"
 
-    def __init__(self, text, group_id, draggable, window):
+    def __init__(self, text, group_id, draggable, window, color=None):
         super().__init__(text)
         self._group_id = group_id
         self._win = window
@@ -51,6 +52,7 @@ class GroupChipButton(QPushButton):
         self.setProperty("group_id", group_id)
         self.setAcceptDrops(draggable)
         self._draggable = draggable
+        self.set_color(color)
 
     def mousePressEvent(self, event):
         if self._draggable and event.button() == Qt.LeftButton:
@@ -92,6 +94,28 @@ class GroupChipButton(QPushButton):
             return
         self._win._move_group_button(src, self)
         event.acceptProposedAction()
+
+    def set_color(self, color: str):
+        self._group_color = color
+        if color:
+            pix = self._make_dot_icon(color)
+            self.setIcon(QIcon(pix))
+            self.setIconSize(QSize(12, 12))
+        else:
+            self.setIcon(QIcon())
+
+
+    def _make_dot_icon(self, color):
+        size = 12
+        pix = QPixmap(size, size)
+        pix.fill(Qt.transparent)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawEllipse(1, 1, size - 2, size - 2)
+        painter.end()
+        return pix
 
 from ui.dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
 from ui.login import LoginDialog
@@ -431,8 +455,8 @@ class Mywindow(QMainWindow):
             btn_all.setChecked(True)
 
         # 各分组按钮（可拖动排序）
-        for gid, gname in groups:
-            btn = GroupChipButton(gname, gid, draggable=True, window=self)
+        for gid, gname, color in groups:
+            btn = GroupChipButton(gname, gid, draggable=True, window=self, color=color)
             self.group_buttons.addButton(btn)
             self._group_btn_layout.addWidget(btn)
             if self._current_group_id == gid:
@@ -481,8 +505,86 @@ class Mywindow(QMainWindow):
 
     def _on_group_context_menu(self, pos):
         menu = QMenu(self)
+        btn = self._group_btn_container.childAt(pos)
+        gid = None
+        if isinstance(btn, GroupChipButton):
+            gid = btn.property("group_id")
+
+        if gid is not None:
+            menu.addAction("重命名...").triggered.connect(lambda: self._rename_group(gid))
+            color_menu = menu.addMenu("修改颜色")
+            GROUP_COLORS = [
+                ("#60a5fa", "蓝色"), ("#34d399", "绿色"), ("#f87171", "红色"),
+                ("#fb923c", "橙色"), ("#a78bfa", "紫色"), ("#facc15", "黄色"),
+            ]
+            for hex_c, label in GROUP_COLORS:
+                act = color_menu.addAction(label)
+                act.setData(hex_c)
+                act.setIcon(GroupChipButton("", None, draggable=False, window=None)._make_dot_icon(hex_c))
+                act.triggered.connect(lambda _, c=hex_c: self._change_group_color(gid, c))
+            color_menu.addSeparator()
+            color_menu.addAction("自定义...").triggered.connect(lambda: self._change_group_color(gid, None))
+            color_menu.addAction("清除颜色").triggered.connect(lambda: self._change_group_color(gid, None))
+            menu.addSeparator()
+
         menu.addAction("管理分组...").triggered.connect(self._open_group_dialog)
         menu.exec(self._group_btn_container.mapToGlobal(pos))
+
+    def _rename_group(self, gid: int):
+        name = self._find_group_name(gid)
+        new_name, ok = QInputDialog.getText(self, "重命名分组", "分组名称:",
+                                            QLineEdit.Normal, name if name else "")
+        if ok and new_name.strip() and new_name.strip() != (name or ""):
+            AppRepository.rename_group(gid, new_name.strip())
+            self._rebuild_group_buttons()
+            self._refresh_table()
+
+    def _delete_group(self, gid: int):
+        name = self._find_group_name(gid) or "该分组"
+        reply = QMessageBox.question(
+            self, "删除分组",
+            f"确定要删除分组「{name}」吗？\n分组内的应用不会被删除，只会从该分组中移除。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            AppRepository.delete_group(gid)
+            if self._current_group_id == gid:
+                self._current_group_id = None
+            self._rebuild_group_buttons()
+            self._refresh_table()
+
+    def _change_group_color(self, gid: int, hint: Optional[str]):
+        current = self._find_group_color(gid)
+        if hint is None:
+            color = QColorDialog.getColor(
+                QColor(current) if current else QColor(), self, "选择分组标识色"
+            )
+            if color.isValid():
+                AppRepository.set_group_color(gid, color.name())
+            else:
+                return
+        else:
+            AppRepository.set_group_color(gid, hint)
+        self._update_group_button_color(gid)
+        self._refresh_table(preserve_sort=True)
+
+    def _find_group_name(self, gid: int) -> Optional[str]:
+        for g in AppRepository.get_all_groups():
+            if g[0] == gid:
+                return g[1]
+
+    def _find_group_color(self, gid: int) -> Optional[str]:
+        for g in AppRepository.get_all_groups():
+            if g[0] == gid:
+                return g[2]
+
+    def _update_group_button_color(self, gid: int):
+        color = self._find_group_color(gid)
+        for i in range(self._group_btn_layout.count()):
+            w = self._group_btn_layout.itemAt(i).widget()
+            if isinstance(w, GroupChipButton) and w.property("group_id") == gid:
+                w.set_color(color)
+                return
 
     def _open_group_dialog(self):
         from ui.group import GroupDialog
