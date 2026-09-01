@@ -253,17 +253,33 @@ class SettingsDialog(QDialog):
         self.spin_sync_interval.setToolTip("待实现")
         general_form.addRow("同步间隔:", self.spin_sync_interval)
 
+        self._idle_enabled = bool(Settings().get("idleEnabled", True))
+        self.check_idle_enabled = QCheckBox("启用")
+        self.check_idle_enabled.setChecked(self._idle_enabled)
+        self.check_idle_enabled.setToolTip("勾选启用暂离检测，取消勾选则整条设置变暗且暂离功能失效。")
+        self.check_idle_enabled.stateChanged.connect(self._on_idle_enabled_changed)
+
+        self._idle_label = QLabel("暂离状态所需时长:")
         self.spin_idle_threshold = QSpinBox()
         self.spin_idle_threshold.setRange(0, 30)
         self.spin_idle_threshold.setSuffix(" 分钟")
         self.spin_idle_threshold.setValue(int(Settings().get("idleThresholdSeconds", 300) // 60))
         self.spin_idle_threshold.setToolTip("无键鼠操作超过此时长视为暂离，暂停专注计时。设为 0 禁用。")
-        general_form.addRow("暂离状态所需时长:", self.spin_idle_threshold)
+
+        idle_row = QHBoxLayout()
+        idle_row.setSpacing(6)
+        idle_row.addWidget(self.check_idle_enabled)
+        idle_row.addWidget(self._idle_label)
+        idle_row.addWidget(self.spin_idle_threshold)
+        idle_row.addStretch()
+        general_form.addRow(idle_row)
 
         self.check_idle_tip = QCheckBox("达到暂离时长时弹出提示")
         self.check_idle_tip.setChecked(bool(Settings().get("idleTipEnabled", False)))
         self.check_idle_tip.setToolTip("无操作达到上方时长时，弹出系统托盘提示。")
         general_form.addRow(self.check_idle_tip)
+
+        self._apply_idle_enabled_state()
 
         self.check_hide_on_pick = QCheckBox("拾取窗口时隐藏主窗口")
         self.check_hide_on_pick.setChecked(bool(Settings().get("hideWindowOnPick", True)))
@@ -383,26 +399,40 @@ class SettingsDialog(QDialog):
         self._label_total.setProperty("role", "muted")
         stats_layout.addWidget(self._label_total)
 
-        self._label_daily = QLabel("")
-        self._label_daily.setProperty("role", "muted")
-        self._label_daily.setWordWrap(True)
-        stats_layout.addWidget(self._label_daily)
-
         layout.addWidget(stats_group)
 
         self._runtime_timer = QTimer(self)
         self._runtime_timer.timeout.connect(self._update_runtime_display)
         self._runtime_timer.start(1000)
         self._update_runtime_display()
-        self._refresh_daily_runtime()
 
         layout.addStretch()
 
         # --- 底部按钮 ---
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_box.accepted.connect(self._on_accept)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(8)
+        btn_layout.addStretch()
+
+        self.btn_ok = QPushButton("确认")
+        self.btn_ok.setFixedHeight(36)
+        self.btn_ok.setFixedWidth(120)
+        self.btn_ok.clicked.connect(self._on_accept)
+        btn_layout.addWidget(self.btn_ok)
+
+        self.btn_cancel = QPushButton("取消")
+        self.btn_cancel.setFixedHeight(36)
+        self.btn_cancel.setFixedWidth(120)
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_cancel)
+
+        self.btn_apply = QPushButton("应用")
+        self.btn_apply.setFixedHeight(36)
+        self.btn_apply.setFixedWidth(120)
+        self.btn_apply.clicked.connect(self._on_apply)
+        btn_layout.addWidget(self.btn_apply)
+
+        layout.addLayout(btn_layout)
 
     def _update_runtime_display(self):
         if self._app_start_time:
@@ -410,28 +440,6 @@ class SettingsDialog(QDialog):
             self._label_current.setText(f"本次运行：{format_seconds_to_text(session_secs)}")
             total_secs = self._base_runtime + session_secs
             self._label_total.setText(f"累计运行：{format_seconds_to_text(total_secs)}")
-
-    def _refresh_daily_runtime(self):
-        """显示近 7 天计时器实际运行时长（当天会话区间并集，单日上限 24 小时）。"""
-        try:
-            from core.stats import get_daily_distinct_totals
-
-            totals = get_daily_distinct_totals()
-            today = datetime.datetime.now().date()
-            parts = []
-            active_days = 0
-            for i in range(6, -1, -1):
-                day = today - datetime.timedelta(days=i)
-                secs = totals.get(day, (0, 0))[1]
-                if secs > 0:
-                    active_days += 1
-                    parts.append(f"{day.month:02d}/{day.day:02d} {format_seconds_to_text(secs, fmt='english')}")
-                else:
-                    parts.append(f"{day.month:02d}/{day.day:02d} —")
-            self._label_daily.setText(
-                f"近7天计时器运行（{active_days}/7 天有记录）：" + "　".join(parts))
-        except Exception:
-            self._label_daily.setText("近7天计时器运行：无法读取")
 
     def _on_change_data_dir(self):
         current = get_data_dir()
@@ -534,13 +542,24 @@ class SettingsDialog(QDialog):
         self.accept()
         os.execl(sys.executable, sys.executable, *sys.argv)
 
-    def _on_accept(self):
+    def _apply_idle_enabled_state(self):
+        checked = self.check_idle_enabled.isChecked()
+        self._idle_label.setEnabled(checked)
+        self.spin_idle_threshold.setEnabled(checked)
+        self.check_idle_tip.setEnabled(checked)
+
+    def _on_idle_enabled_changed(self, state):
+        self._apply_idle_enabled_state()
+        Settings().set("idleEnabled", bool(state))
+
+    def _save_settings(self) -> None:
         close_value = self.combo_close_action.currentData()
         if close_value == "ask":
             Settings().set("closeToTray", None)
         else:
             Settings().set("closeToTray", close_value)
 
+        Settings().set("idleEnabled", self.check_idle_enabled.isChecked())
         Settings().set("idleThresholdSeconds", self.spin_idle_threshold.value() * 60)
         Settings().set("idleTipEnabled", self.check_idle_tip.isChecked())
         Settings().set("showTrayIcon", self.check_show_tray.isChecked())
@@ -565,17 +584,21 @@ class SettingsDialog(QDialog):
         if hasattr(self.parent(), "_apply_tray_visibility"):
             self.parent()._apply_tray_visibility()
 
+        new_format = "english"
         if self.radio_fmt_chinese.isChecked():
             new_format = "chinese"
         elif self.radio_fmt_numeric.isChecked():
             new_format = "numeric"
-        else:
-            new_format = "english"
         if new_format != Settings().get("timeFormat", "english"):
             Settings().set("timeFormat", new_format)
             if hasattr(self.parent(), "_refresh_table"):
                 self.parent()._refresh_table(skip_width_hint=True)
 
+    def _on_apply(self):
+        self._save_settings()
+
+    def _on_accept(self):
+        self._save_settings()
         self.accept()
 
     def _open_zoom_dialog(self):
