@@ -383,12 +383,18 @@ class SettingsDialog(QDialog):
         self._label_total.setProperty("role", "muted")
         stats_layout.addWidget(self._label_total)
 
+        self._label_daily = QLabel("")
+        self._label_daily.setProperty("role", "muted")
+        self._label_daily.setWordWrap(True)
+        stats_layout.addWidget(self._label_daily)
+
         layout.addWidget(stats_group)
 
         self._runtime_timer = QTimer(self)
         self._runtime_timer.timeout.connect(self._update_runtime_display)
         self._runtime_timer.start(1000)
         self._update_runtime_display()
+        self._refresh_daily_runtime()
 
         layout.addStretch()
 
@@ -404,6 +410,28 @@ class SettingsDialog(QDialog):
             self._label_current.setText(f"本次运行：{format_seconds_to_text(session_secs)}")
             total_secs = self._base_runtime + session_secs
             self._label_total.setText(f"累计运行：{format_seconds_to_text(total_secs)}")
+
+    def _refresh_daily_runtime(self):
+        """显示近 7 天计时器实际运行时长（当天会话区间并集，单日上限 24 小时）。"""
+        try:
+            from core.stats import get_daily_distinct_totals
+
+            totals = get_daily_distinct_totals()
+            today = datetime.datetime.now().date()
+            parts = []
+            active_days = 0
+            for i in range(6, -1, -1):
+                day = today - datetime.timedelta(days=i)
+                secs = totals.get(day, (0, 0))[1]
+                if secs > 0:
+                    active_days += 1
+                    parts.append(f"{day.month:02d}/{day.day:02d} {format_seconds_to_text(secs, fmt='english')}")
+                else:
+                    parts.append(f"{day.month:02d}/{day.day:02d} —")
+            self._label_daily.setText(
+                f"近7天计时器运行（{active_days}/7 天有记录）：" + "　".join(parts))
+        except Exception:
+            self._label_daily.setText("近7天计时器运行：无法读取")
 
     def _on_change_data_dir(self):
         current = get_data_dir()

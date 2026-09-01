@@ -187,6 +187,7 @@ def _import_from_json(data: dict) -> None:
     from db.database import engine
     from db.models import Base
     from core.tracker import add_or_get_watched_app
+    from core.daily_rebuild import rebuild_app_daily_usage
 
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -216,19 +217,9 @@ def _import_from_json(data: dict) -> None:
                 if app_data.get("last_seen"):
                     summary.last_seen_end_at = datetime.fromisoformat(app_data["last_seen"].replace(" ", "T"))
 
-            for d in app_data.get("daily_usage", []):
-                date_obj = datetime.fromisoformat(d["date"]).date()
-                daily = db.query(AppDailyUsage).filter_by(
-                    application_id=watched_app.id, date=date_obj
-                ).first()
-                if not daily:
-                    daily = AppDailyUsage(
-                        application_id=watched_app.id,
-                        date=date_obj,
-                    )
-                    db.add(daily)
-                daily.focus_seconds = int(d.get("focus_hours", 0) * 3600)
-                daily.lifetime_seconds = int(d.get("lifetime_hours", 0) * 3600)
+            # 日统计不从 JSON 直接写入：app_daily_usage 是派生表，
+            # 导入完会话与焦点活动后统一由 rebuild_app_daily_usage 重算，
+            # 否则汇总表会与原始区间脱节（历史漂移的根源）。
 
             # 恢复会话与焦点活动（v2.0 含起止时间；旧格式时间为空）
             if summary:
@@ -257,6 +248,7 @@ def _import_from_json(data: dict) -> None:
                         db.add(activity)
 
             db.commit()
+        rebuild_app_daily_usage(db)
         db.commit()
     except Exception:
         db.rollback()
@@ -327,6 +319,7 @@ def merge_import_json(filepath: str, dry_run: bool = False,
                       progress_callback=None) -> tuple[bool, dict]:
     from db.database import SessionLocal
     from core.tracker import add_or_get_watched_app
+    from core.daily_rebuild import rebuild_app_daily_usage
 
     if not os.path.exists(filepath):
         return False, {"error": "文件不存在"}
@@ -347,6 +340,7 @@ def merge_import_json(filepath: str, dry_run: bool = False,
 
     db = SessionLocal()
     try:
+        touched_app_ids = set()
         stats = {
             "apps_added": 0,
             "apps_updated": 0,
@@ -401,20 +395,11 @@ def merge_import_json(filepath: str, dry_run: bool = False,
                     summary.last_seen_end_at = datetime.fromisoformat(
                         app_data["last_seen"].replace(" ", "T"))
 
-            for d in app_data.get("daily_usage", []):
-                date_obj = datetime.fromisoformat(d["date"]).date()
-                daily = db.query(AppDailyUsage).filter_by(
-                    application_id=app.id, date=date_obj
-                ).first()
-                if not daily:
-                    daily = AppDailyUsage(
-                        application_id=app.id, date=date_obj)
-                    db.add(daily)
-                daily.focus_seconds = int(
-                    d.get("focus_hours", 0) * 3600)
-                daily.lifetime_seconds = int(
-                    d.get("lifetime_hours", 0) * 3600)
-                stats["daily_upserted"] += 1
+            touched_app_ids.add(app.id)
+
+            # 日统计不从 JSON 直接写入：app_daily_usage 是派生表，
+            # 合并完会话与焦点活动后统一由 rebuild_app_daily_usage 重算，
+            # 否则汇总表会与原始区间脱节（历史漂移的根源）。
 
             # 合并会话与焦点活动（按 summary_id + session_start_time 去重）
             if summary:
@@ -456,6 +441,13 @@ def merge_import_json(filepath: str, dry_run: bool = False,
             stats["bak_path"] = ""
             return True, stats
 
+        rebuilt = rebuild_app_daily_usage(db, sorted(touched_app_ids))
+        stats["daily_upserted"] = rebuilt["written"]
+        stats["focus_clamped"] = rebuilt["focus_clamped"]
+        if progress_callback:
+            progress_callback(
+                f"[REPAIR] 已按会话/焦点区间重算日统计："
+                f"写入 {rebuilt['written']} 行，删除 {rebuilt['deleted']} 行")
         db.commit()
         return True, stats
 

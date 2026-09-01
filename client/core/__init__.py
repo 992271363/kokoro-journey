@@ -1,3 +1,4 @@
+import db
 from .monitor import (
     GlobalMonitorWorker, ActiveSession, get_process_list,
     retry_failed_sessions, get_failed_queue_count,

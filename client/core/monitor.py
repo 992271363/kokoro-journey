@@ -143,6 +143,13 @@ def retry_failed_sessions() -> tuple[int, int]:
         finally:
             db.close()
 
+    if success_count:
+        try:
+            from core.stats import clear_distinct_cache
+            clear_distinct_cache()
+        except Exception:
+            pass
+
     _save_failed_queue(remaining)
     return success_count, len(remaining)
 

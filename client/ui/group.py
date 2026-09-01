@@ -31,6 +31,7 @@ class GroupDialog(QDialog):
 
         # 分组列表
         self.list_widget = QListWidget()
+        self.list_widget.setIconSize(QSize(16, 16))
         layout.addWidget(self.list_widget)
 
         # 新建分组
@@ -88,7 +89,6 @@ class GroupDialog(QDialog):
                 painter.drawEllipse(1, 1, 10, 10)
                 painter.end()
                 item.setIcon(QIcon(pix))
-                item.setIconSize(QSize(16, 16))
             self.list_widget.addItem(item)
 
     def _on_add(self):

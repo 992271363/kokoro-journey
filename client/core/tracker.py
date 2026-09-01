@@ -181,6 +181,11 @@ def record_process_session(
     try:
         db.commit()
         print(f"[Tracking Service] 数据库更新成功！")
+        try:
+            from core.stats import clear_distinct_cache
+            clear_distinct_cache()
+        except Exception:
+            pass
     except Exception as e:
         print(f"[Tracking Service] 数据库提交失败: {e}")
         db.rollback()
