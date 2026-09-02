@@ -660,7 +660,7 @@ class Mywindow(QMainWindow):
         if app_data:
             dialog = AppDetailDialog(app_data, self)
             dialog.exec()
-            if dialog.launch_path_changed:
+            if dialog.needs_table_refresh:
                 self._refresh_table(skip_width_hint=True)
 
     def _on_launch_requested(self, launch_path: str):

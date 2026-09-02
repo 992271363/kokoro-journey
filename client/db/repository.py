@@ -305,6 +305,27 @@ class AppRepository:
             db.close()
 
     @staticmethod
+    def rename_app(exe_path: str, new_name: str) -> bool:
+        """按 executable_path 定位，修改 executable_name（纯显示名称）。"""
+        exe_path = normalize_exe_path(exe_path)
+        db = SessionLocal()
+        try:
+            app = db.query(WatchedApplication).filter_by(executable_path=exe_path).first()
+            if not app:
+                return False
+            new_name = new_name.strip()
+            if new_name == "" or new_name == app.executable_name.strip():
+                return True
+            app.executable_name = new_name
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
     def set_app_watched(exe_path: str, watched: bool) -> bool:
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()

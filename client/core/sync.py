@@ -127,13 +127,36 @@ class ApiSyncWorker(QObject):
         self.interval = interval_seconds * 1000
         self._timer = None
         self._running = False
+        self._paused = False
 
-    @Slot()  # 确保这是个槽（在目标线程执行）
+    @Slot()
+    def pause(self):
+        if self._timer and self._timer.isActive():
+            self._timer.stop()
+            self._paused = True
+            print("[Sync Service] 后台同步已暂停。")
+        elif not self._timer and self._running:
+            self._paused = True
+
+    @Slot()
+    def resume(self):
+        self._paused = False
+        if self._timer and not self._timer.isActive():
+            self._timer.start()
+            print(f"[Sync Service] 后台同步已恢复，每 {self.interval // 1000} 秒检查一次。")
+
+    @Slot(int)
+    def set_interval(self, seconds: int):
+        self.interval = seconds * 1000
+        if self._timer:
+            self._timer.setInterval(self.interval)
+
+    @Slot()
     def start_service(self):
         """在 worker 线程中被调用，创建并启动 QTimer（QTimer 必须在这里创建）"""
         print(f"[Sync Service] QTimer 服务已在后台线程启动，每 {self.interval // 1000} 秒检查一次。")
         self._running = True
-        # 不要把 parent 设为主线程对象，用 None 或 self（self 已在目标线程）
+        self._paused = False
         self._timer = QTimer()
         self._timer.setInterval(self.interval)
         self._timer.timeout.connect(self.perform_sync_check)
@@ -143,8 +166,8 @@ class ApiSyncWorker(QObject):
 
     @Slot()
     def perform_sync_check(self):
-        # 早退条件：如果已经停止则不执行
-        if not self._running:
+        # 早退条件：如果已停止或已暂停则不执行
+        if not self._running or self._paused:
             return
         print("\n--- [Sync Service] QTimer 触发新一轮后台同步检查 ---")
         token = self._token_provider() if self._token_provider else None

@@ -18,7 +18,9 @@ def add_or_get_watched_app(db: Session, executable_path: str, executable_name: s
     ).first()
 
     if watched_app:
-        watched_app.executable_name = executable_name
+        # 仅在从未设过名字时才写入（用户手动重命名后，tracker 不再覆盖）
+        if not watched_app.executable_name:
+            watched_app.executable_name = executable_name
         watched_app.is_watched = True
         if not watched_app.launch_path:
             watched_app.launch_path = executable_path

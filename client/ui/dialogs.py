@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLabel, QFrame, QDialogButtonBox,
     QVBoxLayout, QProgressBar, QPushButton, QHBoxLayout, QFileDialog,
-    QMessageBox
+    QMessageBox, QLineEdit, QToolButton, QInputDialog
 )
 from PySide6.QtGui import QFont
 import os
@@ -75,16 +75,29 @@ class AddAppDialog(QDialog):
 class AppDetailDialog(QDialog):
     def __init__(self, app_data: WatchedApplication, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"详细信息 - {os.path.splitext(app_data.executable_name)[0]}")
-        self.resize(400, 300)
+        self.resize(400, 320)
         self.app_data = app_data
-        self.launch_path_changed = False
+        self.needs_table_refresh = False
 
         layout = QFormLayout(self)
         layout.setLabelAlignment(Qt.AlignRight)
         layout.setContentsMargins(24, 20, 24, 20)
-        name_without_ext = os.path.splitext(app_data.executable_name)[0]
-        layout.addRow("<b>应用名称:</b>", QLabel(name_without_ext))
+
+        self._name_row = QHBoxLayout()
+        self._name_edit = QLineEdit()
+        self._name_edit.setFixedHeight(36)
+        self._name_edit.setText(os.path.splitext(app_data.executable_name)[0])
+        self._name_edit.setToolTip("可手动修改显示名称。修改后进程名称不会再被覆盖。")
+        self._name_edit.editingFinished.connect(self._on_name_edit_commit)
+        self._name_row.addWidget(self._name_edit, stretch=1)
+        self.btn_rename = QToolButton()
+        self.btn_rename.setText("修改")
+        self.btn_rename.setFixedHeight(36)
+        self.btn_rename.setFixedWidth(60)
+        self.btn_rename.setToolTip("修改应用显示名称")
+        self.btn_rename.clicked.connect(self._on_rename_app)
+        self._name_row.addWidget(self.btn_rename)
+        layout.addRow("<b>应用名称:</b>", self._name_row)
 
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
@@ -94,7 +107,6 @@ class AppDetailDialog(QDialog):
         proc_label.setWordWrap(True)
         layout.addRow("进程路径:", proc_label)
 
-        # 启动路径：展示 + 手动修改
         self.launch_label = QLabel()
         self.launch_label.setWordWrap(True)
         self._launch_row = QHBoxLayout()
@@ -105,6 +117,7 @@ class AppDetailDialog(QDialog):
         self._launch_row.addWidget(self.btn_edit_launch)
         layout.addRow("启动路径:", self._launch_row)
         self._refresh_launch_label()
+        self._refresh_title()
 
         line_path = QFrame()
         line_path.setFrameShape(QFrame.HLine)
@@ -135,6 +148,48 @@ class AppDetailDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+    def _refresh_display(self):
+        try:
+            app = AppRepository.get_app_by_path(self.app_data.executable_path)
+            if app:
+                self.app_data = app
+                self._name_edit.setText(os.path.splitext(app.executable_name)[0])
+        except Exception:
+            pass
+        self._refresh_title()
+
+    def _refresh_title(self):
+        name = os.path.splitext(self.app_data.executable_name)[0]
+        self.setWindowTitle(f"详细信息 - {name}")
+
+    def _on_rename_app(self):
+        current = os.path.splitext(self.app_data.executable_name)[0]
+        new_name, ok = QInputDialog.getText(
+            self, "修改应用名称", "新名称:", text=current
+        )
+        if not ok or not new_name.strip():
+            return
+        new_name = new_name.strip()
+        if AppRepository.rename_app(self.app_data.executable_path, new_name):
+            self.app_data = AppRepository.get_app_by_path(self.app_data.executable_path)
+            self._name_edit.setText(new_name)
+            self._refresh_title()
+            self.needs_table_refresh = True
+        else:
+            QMessageBox.warning(self, "提示", "名称保存失败，请重试。")
+
+    def _on_name_edit_commit(self):
+        new_name = self._name_edit.text().strip()
+        if not new_name:
+            return
+        if AppRepository.rename_app(self.app_data.executable_path, new_name):
+            self.app_data = AppRepository.get_app_by_path(self.app_data.executable_path)
+            self._name_edit.setText(new_name)
+            self._refresh_title()
+            self.needs_table_refresh = True
+        else:
+            QMessageBox.warning(self, "提示", "名称保存失败，请重试。")
+
     def _refresh_launch_label(self):
         path = self.app_data.launch_path or self.app_data.executable_path
         self.launch_label.setText(path)
@@ -150,8 +205,8 @@ class AppDetailDialog(QDialog):
         if not file_path:
             return
         if AppRepository.set_launch_path(self.app_data.executable_path, file_path):
-            self.app_data.launch_path = file_path
-            self.launch_path_changed = True
+            self.app_data = AppRepository.get_app_by_path(self.app_data.executable_path)
+            self.needs_table_refresh = True
             self._refresh_launch_label()
         else:
             QMessageBox.warning(self, "提示", "启动路径保存失败，请重试。")

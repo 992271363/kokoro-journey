@@ -245,16 +245,35 @@ class SettingsDialog(QDialog):
             self.check_autostart.setToolTip("打包为 exe 后可用")
         general_form.addRow(self.check_autostart)
 
+        self._sync_enabled = bool(Settings().get("syncEnabled", True))
+        self.check_sync_enabled = QCheckBox()
+        self.check_sync_enabled.setChecked(self._sync_enabled)
+        self.check_sync_enabled.setToolTip("勾选启用后台自动同步，取消勾选则整条设置变暗且不再自动同步。")
+        self.check_sync_enabled.stateChanged.connect(self._on_sync_enabled_changed)
+
+        self._sync_label = QLabel("同步间隔:")
         self.spin_sync_interval = QSpinBox()
         self.spin_sync_interval.setRange(10, 600)
         self.spin_sync_interval.setSuffix(" 秒")
-        self.spin_sync_interval.setValue(60)
-        self.spin_sync_interval.setEnabled(False)
-        self.spin_sync_interval.setToolTip("待实现")
-        general_form.addRow("同步间隔:", self.spin_sync_interval)
+        self.spin_sync_interval.setValue(int(Settings().get("syncIntervalSeconds", 60)))
+        self.spin_sync_interval.setToolTip("后台同步检查间隔，范围 10–600 秒。")
+
+        sync_inner = QHBoxLayout()
+        sync_inner.setSpacing(4)
+        sync_inner.addWidget(self.check_sync_enabled)
+        sync_inner.addWidget(self._sync_label)
+
+        sync_row = QHBoxLayout()
+        sync_row.setSpacing(6)
+        sync_row.addLayout(sync_inner)
+        sync_row.addWidget(self.spin_sync_interval)
+        sync_row.addStretch()
+        general_form.addRow(sync_row)
+
+        self._apply_sync_enabled_state()
 
         self._idle_enabled = bool(Settings().get("idleEnabled", True))
-        self.check_idle_enabled = QCheckBox("启用")
+        self.check_idle_enabled = QCheckBox()
         self.check_idle_enabled.setChecked(self._idle_enabled)
         self.check_idle_enabled.setToolTip("勾选启用暂离检测，取消勾选则整条设置变暗且暂离功能失效。")
         self.check_idle_enabled.stateChanged.connect(self._on_idle_enabled_changed)
@@ -266,10 +285,14 @@ class SettingsDialog(QDialog):
         self.spin_idle_threshold.setValue(int(Settings().get("idleThresholdSeconds", 300) // 60))
         self.spin_idle_threshold.setToolTip("无键鼠操作超过此时长视为暂离，暂停专注计时。设为 0 禁用。")
 
+        idle_inner = QHBoxLayout()
+        idle_inner.setSpacing(4)
+        idle_inner.addWidget(self.check_idle_enabled)
+        idle_inner.addWidget(self._idle_label)
+
         idle_row = QHBoxLayout()
         idle_row.setSpacing(6)
-        idle_row.addWidget(self.check_idle_enabled)
-        idle_row.addWidget(self._idle_label)
+        idle_row.addLayout(idle_inner)
         idle_row.addWidget(self.spin_idle_threshold)
         idle_row.addStretch()
         general_form.addRow(idle_row)
@@ -411,24 +434,24 @@ class SettingsDialog(QDialog):
         # --- 底部按钮 ---
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.setSpacing(8)
+        btn_layout.setSpacing(6)
         btn_layout.addStretch()
 
         self.btn_ok = QPushButton("确认")
-        self.btn_ok.setFixedHeight(36)
-        self.btn_ok.setFixedWidth(120)
+        self.btn_ok.setFixedHeight(34)
+        self.btn_ok.setFixedWidth(80)
         self.btn_ok.clicked.connect(self._on_accept)
         btn_layout.addWidget(self.btn_ok)
 
         self.btn_cancel = QPushButton("取消")
-        self.btn_cancel.setFixedHeight(36)
-        self.btn_cancel.setFixedWidth(120)
+        self.btn_cancel.setFixedHeight(34)
+        self.btn_cancel.setFixedWidth(80)
         self.btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(self.btn_cancel)
 
         self.btn_apply = QPushButton("应用")
-        self.btn_apply.setFixedHeight(36)
-        self.btn_apply.setFixedWidth(120)
+        self.btn_apply.setFixedHeight(34)
+        self.btn_apply.setFixedWidth(80)
         self.btn_apply.clicked.connect(self._on_apply)
         btn_layout.addWidget(self.btn_apply)
 
@@ -552,12 +575,36 @@ class SettingsDialog(QDialog):
         self._apply_idle_enabled_state()
         Settings().set("idleEnabled", bool(state))
 
+    def _apply_sync_enabled_state(self):
+        checked = self.check_sync_enabled.isChecked()
+        self._sync_label.setEnabled(checked)
+        self.spin_sync_interval.setEnabled(checked)
+
+    def _on_sync_enabled_changed(self, state):
+        self._apply_sync_enabled_state()
+        Settings().set("syncEnabled", bool(state))
+
     def _save_settings(self) -> None:
         close_value = self.combo_close_action.currentData()
         if close_value == "ask":
             Settings().set("closeToTray", None)
         else:
             Settings().set("closeToTray", close_value)
+
+        Settings().set("syncEnabled", self.check_sync_enabled.isChecked())
+        Settings().set("syncIntervalSeconds", self.spin_sync_interval.value())
+
+        try:
+            mw = self.parent()
+            if hasattr(mw, "sync_controller"):
+                new_interval = self.spin_sync_interval.value()
+                mw.sync_controller.set_interval(new_interval)
+                if self.check_sync_enabled.isChecked():
+                    mw.sync_controller.resume()
+                else:
+                    mw.sync_controller.pause()
+        except Exception:
+            pass
 
         Settings().set("idleEnabled", self.check_idle_enabled.isChecked())
         Settings().set("idleThresholdSeconds", self.spin_idle_threshold.value() * 60)
