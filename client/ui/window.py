@@ -524,7 +524,7 @@ class Mywindow(QMainWindow):
                 act.triggered.connect(lambda _, c=hex_c: self._change_group_color(gid, c))
             color_menu.addSeparator()
             color_menu.addAction("自定义...").triggered.connect(lambda: self._change_group_color(gid, None))
-            color_menu.addAction("清除颜色").triggered.connect(lambda: self._change_group_color(gid, None))
+            color_menu.addAction("清除颜色").triggered.connect(lambda: self._change_group_color(gid, "__clear__"))
             menu.addSeparator()
 
         menu.addAction("管理分组...").triggered.connect(self._open_group_dialog)
@@ -553,9 +553,11 @@ class Mywindow(QMainWindow):
             self._rebuild_group_buttons()
             self._refresh_table()
 
-    def _change_group_color(self, gid: int, hint: Optional[str]):
-        current = self._find_group_color(gid)
-        if hint is None:
+    def _change_group_color(self, gid: int, hint):
+        if hint == "__clear__":
+            AppRepository.set_group_color(gid, None)
+        elif hint is None:
+            current = self._find_group_color(gid)
             color = QColorDialog.getColor(
                 QColor(current) if current else QColor(), self, "选择分组标识色"
             )

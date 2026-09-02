@@ -245,6 +245,10 @@ class SettingsDialog(QDialog):
             self.check_autostart.setToolTip("打包为 exe 后可用")
         general_form.addRow(self.check_autostart)
 
+        self.check_minimize_on_start = QCheckBox("启动时最小化")
+        self.check_minimize_on_start.setChecked(Settings().get("minimizeOnStart", False))
+        general_form.addRow(self.check_minimize_on_start)
+
         self._sync_enabled = bool(Settings().get("syncEnabled", True))
         self.check_sync_enabled = QCheckBox()
         self.check_sync_enabled.setChecked(self._sync_enabled)
@@ -617,6 +621,8 @@ class SettingsDialog(QDialog):
                 autostart.enable()
             else:
                 autostart.disable()
+
+        Settings().set("minimizeOnStart", self.check_minimize_on_start.isChecked())
 
         if self.radio_light.isChecked():
             apply_theme("light")

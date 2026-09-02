@@ -45,7 +45,7 @@ def _rebuild_quiet_output():
 _rebuild_quiet_output()
 
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # Qt 应用入口类
-from PySide6.QtCore import QLockFile, Qt  # Qt 提供的跨平台文件锁工具
+from PySide6.QtCore import QLockFile, Qt, QTranslator, QLocale, QLibraryInfo  # Qt 提供的跨平台文件锁工具
 
 from ui.window import Mywindow
 from db.database import create_db_and_tables, delete_database
@@ -149,6 +149,16 @@ if __name__ == "__main__":
     )
     app = QApplication(sys.argv)
 
+    translator = QTranslator()
+    qt_locale = QLocale.system().name()
+    trans_dir = QLibraryInfo.path(QLibraryInfo.TranslationsPath)
+    if translator.load("qt_" + qt_locale, trans_dir):
+        app.installTranslator(translator)
+    qtb_locale = QLocale.system().name()
+    qtb_trans = QTranslator()
+    if qtb_trans.load("qtbase_" + qtb_locale, trans_dir):
+        app.installTranslator(qtb_trans)
+
     # ========================================================
     # 第三步：首次运行引导（选择数据存储位置）
     # ========================================================
@@ -213,7 +223,11 @@ if __name__ == "__main__":
     # 第七步：创建并显示主窗口
     # ========================================================
     window = Mywindow()
-    window.show()
+
+    if Settings().get("minimizeOnStart", False):
+        window._minimize_to_tray()
+    else:
+        window.show()
 
     # ========================================================
     # 第八步：进入 Qt 事件循环
