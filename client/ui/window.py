@@ -8,7 +8,7 @@ import win32con
 import win32process
 from typing import Optional
 from PySide6.QtCore import Qt, QTimer, QSize, QObject, QEvent, Signal, QByteArray, QPoint, QMimeData
-from PySide6.QtGui import QAction, QKeySequence, QIcon, QImage, QColor, QPainter, QPixmap, QDrag, QCursor
+from PySide6.QtGui import QAction, QKeySequence, QIcon, QImage, QColor, QPainter, QPixmap, QDrag, QCursor, QPolygon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QDialog, QPushButton, QLabel,
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
@@ -234,12 +234,6 @@ class Mywindow(QMainWindow):
                 background: transparent;
                 border: none;
             }
-
-            QToolBarExtension::menu-arrow {
-                width: 12px;
-                height: 16px;
-                image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'><path d='M2 4 L10 4 L6 10 Z' fill='%2394a3b8'/></svg>");
-            }
         """)
         toolbar.setMinimumHeight(64)
         toolbar.layout().setAlignment(Qt.AlignVCenter)
@@ -397,6 +391,7 @@ class Mywindow(QMainWindow):
         self._is_closing = False
         self._overlay = None
         self._settings = Settings()
+        self._restore_window_state()
         self._right_click_blocker = PickRightClickBlocker(self)
         self._right_click_blocker.right_cancel_requested.connect(
             self._request_pick_cancel_by_right
@@ -775,13 +770,19 @@ class Mywindow(QMainWindow):
     def _adjust_window_width(self, table_content_width: int):
         if getattr(self, "_width_locked", False):
             return
+        if getattr(self, "_geometry_restored", False):
+            return  # 已恢复保存的窗口状态，不自动调整
+        if self.isMaximized() or self.isFullScreen():
+            return  # 最大化/全屏状态下不自动调整
         margins = self._table_container.layout().contentsMargins()
         extra = margins.left() + margins.right()
         new_width = table_content_width + extra
         new_height = int(new_width * 16 / 9)
         screen = self.screen().availableGeometry()
-        new_width = min(new_width, screen.width())
-        new_height = min(new_height, screen.height())
+        # 自动适配只允许缩小以适配小屏，不允许自动放大撑满屏幕；
+        # 上限取当前窗口大小，所以启动时保持设计尺寸 1200x675，居中不受影响
+        new_width = min(new_width, screen.width(), self.width())
+        new_height = min(new_height, screen.height(), self.height())
         self.resize(new_width, new_height)
 
     def _refresh_monitor_list(self):
@@ -979,24 +980,23 @@ class Mywindow(QMainWindow):
         )
 
         arrow_color = "#e2e8f0" if is_dark else "#94a3b8"
-        arrow_hex = arrow_color[1:]
-        arrow_svg = f"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'><path d='M2 4 L10 4 L6 10 Z' fill='%23{arrow_hex}'/></svg>"
 
         # 通过 findChildren 查找扩展按钮并设置图标
         extensions = self._toolbar.findChildren(QWidget)
         for widget in extensions:
             class_name = widget.metaObject().className()
             if "Extension" in class_name and hasattr(widget, 'setIcon'):
-                # 从 data URL 中提取纯 SVG 内容
-                svg_start = arrow_svg.find('<svg')
-                svg_end = arrow_svg.find('</svg>') + 6
-                svg_content = arrow_svg[svg_start:svg_end]
-                
-                svg_bytes = svg_content.encode('utf-8')
-                pixmap = QPixmap()
-                if pixmap.loadFromData(svg_bytes, 'SVG'):
-                    icon = QIcon(QPixmap.fromImage(QImage.fromData(svg_bytes, 'SVG')))
-                    widget.setIcon(icon)
+                # 使用 Qt 绘图 API 创建箭头图标
+                pixmap = QPixmap(12, 16)
+                pixmap.fill(Qt.transparent)
+                painter = QPainter(pixmap)
+                painter.setRenderHint(QPainter.Antialiasing)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QColor(arrow_color))
+                painter.drawPolygon(QPolygon([QPoint(2, 4), QPoint(10, 4), QPoint(6, 10)]))
+                painter.end()
+                icon = QIcon(pixmap)
+                widget.setIcon(icon)
 
         base_style = """
             QToolbar QToolButton {
@@ -1043,12 +1043,6 @@ class Mywindow(QMainWindow):
                 background: transparent;
                 border: none;
             }
-
-            QToolBarExtension::menu-arrow {
-                width: 12px;
-                height: 16px;
-                image: url("{arrow_svg}");
-            }
         """
         self._toolbar.setStyleSheet(base_style)
 
@@ -1075,6 +1069,63 @@ class Mywindow(QMainWindow):
     def _apply_table_zoom_from_settings(self):
         zoom = int(self._settings.get("tableZoom", 100))
         self.table_manager.apply_zoom(zoom / 100.0)
+
+    def _restore_window_state(self):
+        if not getattr(sys, "frozen", False):
+            self._geometry_restored = False
+            self._apply_initial_window_size()
+            return
+        geometry = self._settings.get("windowGeometry")
+        state = self._settings.get("windowState")
+        screen = self.screen().availableGeometry()
+        restored = bool(geometry and isinstance(geometry, dict))
+        self._geometry_restored = restored
+        if restored:
+            # 尺寸限制在屏幕范围内，位置至少保留一部分在屏内
+            width = min(int(geometry.get("width", 1200)), screen.width())
+            height = min(int(geometry.get("height", 675)), screen.height())
+            x = max(0, min(int(geometry.get("x", 100)), screen.width() - 100))
+            y = max(0, min(int(geometry.get("y", 100)), screen.height() - 100))
+            self.setGeometry(x, y, width, height)
+        else:
+            self._apply_initial_window_size()
+        if state == "maximized":
+            self.showMaximized()
+        elif state == "fullscreen":
+            self.showFullScreen()
+
+    def _apply_initial_window_size(self):
+        """初始窗口：占逻辑可用屏宽的 62%，按 16:9，保证整体能放下，居中"""
+        screen = self.screen().availableGeometry()
+        w = int(screen.width() * 0.62)
+        h = int(w * 9 / 16)
+        if h > screen.height():
+            h = screen.height()
+            w = int(h * 16 / 9)
+        self.resize(w, h)
+        self._center_on_screen()
+
+    def _center_on_screen(self):
+        screen = self.screen().availableGeometry()
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
+
+    def _save_window_state(self):
+        # 最大化/全屏时保存"还原后"的几何，避免把满屏尺寸存成普通尺寸
+        geo = self.normalGeometry() if (self.isMaximized() or self.isFullScreen()) else self.geometry()
+        self._settings.set("windowGeometry", {
+            "x": geo.x(),
+            "y": geo.y(),
+            "width": geo.width(),
+            "height": geo.height()
+        })
+        if self.isMaximized():
+            self._settings.set("windowState", "maximized")
+        elif self.isFullScreen():
+            self._settings.set("windowState", "fullscreen")
+        else:
+            self._settings.set("windowState", "normal")
 
     def open_stats(self):
         StatsDialog(parent=self).exec()
@@ -1130,6 +1181,8 @@ class Mywindow(QMainWindow):
         if self._is_closing:
             event.accept()
             return
+
+        self._save_window_state()
 
         close_behavior = self._settings.get("closeToTray")
 
