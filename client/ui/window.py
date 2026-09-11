@@ -173,8 +173,8 @@ class Mywindow(QMainWindow):
         # ---- UI 初始化 ----
         self.setWindowTitle("Kokoro Journey")
         self.resize(1200, 675)
-        screen = self.screen().availableGeometry()
-        self.setMinimumSize(int(screen.width() * 0.5), int(screen.height() * 0.5))
+        self.setMinimumSize(800, 500)
+        self._spacers = []
 
         central = QWidget(self)
         self.setCentralWidget(central)
@@ -184,6 +184,7 @@ class Mywindow(QMainWindow):
 
 # ---- 工具栏 ----
         toolbar = _NoContextToolBar()
+        self._toolbar = toolbar
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
         toolbar.setIconSize(QSize(27, 27))
@@ -216,6 +217,29 @@ class Mywindow(QMainWindow):
                 padding: 0 8px;
                 margin: 0;
             }
+
+            QToolBarExtension {
+                min-height: 52px;
+                max-height: 52px;
+                padding: 0;
+                margin: 0;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+            }
+
+            QToolBarExtension::menu-button {
+                padding: 0;
+                margin: 0;
+                background: transparent;
+                border: none;
+            }
+
+            QToolBarExtension::menu-arrow {
+                width: 12px;
+                height: 16px;
+                image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'><path d='M2 4 L10 4 L6 10 Z' fill='%2394a3b8'/></svg>");
+            }
         """)
         toolbar.setMinimumHeight(64)
         toolbar.layout().setAlignment(Qt.AlignVCenter)
@@ -234,12 +258,12 @@ class Mywindow(QMainWindow):
         self.btn_monitor_toggle.setToolTip("暂停/恢复全局监控")
         self.btn_monitor_toggle.setFixedHeight(48)
         toolbar.addWidget(self.btn_monitor_toggle)
-        toolbar.addWidget(_spacer(3))
+        toolbar.addWidget(self._add_spacer(3))
 
         self.pushButton_procs = QPushButton("添加进程")
         self.pushButton_procs.setFixedHeight(48)
         toolbar.addWidget(self.pushButton_procs)
-        toolbar.addWidget(_spacer(3))
+        toolbar.addWidget(self._add_spacer(3))
 
         self.btn_crosshair = PickButton("拾取窗口")
         self.btn_crosshair.setToolTip("按住后拖动到目标窗口上松开，自动添加监控")
@@ -251,7 +275,7 @@ class Mywindow(QMainWindow):
         self.btn_crosshair.setIconSize(QSize(27, 27))
 
         toolbar.addWidget(self.btn_crosshair)
-        #toolbar.addWidget(_spacer(3))
+        #toolbar.addWidget(self._add_spacer(3))
         toolbar.addSeparator()
 
         # ---- 分组筛选按钮 ----
@@ -265,7 +289,7 @@ class Mywindow(QMainWindow):
         self._group_btn_container.setContextMenuPolicy(Qt.CustomContextMenu)
         self._group_btn_container.customContextMenuRequested.connect(self._on_group_context_menu)
         toolbar.addWidget(self._group_btn_container)
-        toolbar.addWidget(_spacer(3))
+        toolbar.addWidget(self._add_spacer(3))
         self._rebuild_group_buttons()
         self.group_buttons.buttonClicked.connect(self._on_group_changed)
 
@@ -278,12 +302,12 @@ class Mywindow(QMainWindow):
         self.search_edit.setToolTip("按应用名称或路径搜索，支持多个关键词")
         self.search_edit.setProperty("search", True)
         toolbar.addWidget(self.search_edit)
-        toolbar.addWidget(_spacer(3))
+        toolbar.addWidget(self._add_spacer(3))
 
         self.btn_stats = QPushButton("统计")
         self.btn_stats.setFixedHeight(48)
         toolbar.addWidget(self.btn_stats)
-        toolbar.addWidget(_spacer(3))
+        toolbar.addWidget(self._add_spacer(3))
 
         self.user_show = QLabel("未登录")
         self.user_show.setFixedHeight(48)
@@ -291,12 +315,12 @@ class Mywindow(QMainWindow):
         self.user_show.setObjectName("user_show")
         self.user_show.setProperty("logged", False)
         toolbar.addWidget(self.user_show)
-        toolbar.addWidget(_spacer(3))
+        toolbar.addWidget(self._add_spacer(3))
 
         self.login_action = toolbar.addAction("登录")
         self.logout_action = toolbar.addAction("退出")
         self.logout_action.setVisible(False)
-        toolbar.addWidget(_spacer(3))
+        toolbar.addWidget(self._add_spacer(3))
 
         self.settings_button = QPushButton()
         self.settings_button.setToolTip("设置")
@@ -442,6 +466,40 @@ class Mywindow(QMainWindow):
             self.btn_monitor_toggle.setProperty("paused", True)
             self.btn_monitor_toggle.setStyle(self.btn_monitor_toggle.style())
             self.statusBar().showMessage("监控已暂停")
+
+    def _add_spacer(self, width):
+        s = QWidget()
+        s.setFixedWidth(width)
+        self._spacers.append(s)
+        return s
+
+    def _adjust_toolbar_layout(self):
+        available_width = self.width()
+
+        if available_width >= 1100:
+            spacer_width = 3
+            show_secondary = True
+        elif available_width >= 950:
+            spacer_width = 2
+            show_secondary = True
+        elif available_width >= 800:
+            spacer_width = 1
+            show_secondary = True
+        else:
+            spacer_width = 0
+            show_secondary = False
+
+        for spacer in self._spacers:
+            spacer.setFixedWidth(spacer_width)
+
+        if hasattr(self, "pushButton_procs"):
+            self.pushButton_procs.setVisible(show_secondary)
+        if hasattr(self, "btn_stats"):
+            self.btn_stats.setVisible(show_secondary)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._adjust_toolbar_layout()
 
     def _toggle_monitor(self):
         if self.monitor_controller.is_paused:
@@ -919,6 +977,80 @@ class Mywindow(QMainWindow):
         self.settings_button.setIcon(
             _themed_icon(os.path.join(self._base, "icons", "gear.svg"), gear_color)
         )
+
+        arrow_color = "#e2e8f0" if is_dark else "#94a3b8"
+        arrow_hex = arrow_color[1:]
+        arrow_svg = f"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 16'><path d='M2 4 L10 4 L6 10 Z' fill='%23{arrow_hex}'/></svg>"
+
+        # 通过 findChildren 查找扩展按钮并设置图标
+        extensions = self._toolbar.findChildren(QWidget)
+        for widget in extensions:
+            class_name = widget.metaObject().className()
+            if "Extension" in class_name and hasattr(widget, 'setIcon'):
+                # 从 data URL 中提取纯 SVG 内容
+                svg_start = arrow_svg.find('<svg')
+                svg_end = arrow_svg.find('</svg>') + 6
+                svg_content = arrow_svg[svg_start:svg_end]
+                
+                svg_bytes = svg_content.encode('utf-8')
+                pixmap = QPixmap()
+                if pixmap.loadFromData(svg_bytes, 'SVG'):
+                    icon = QIcon(QPixmap.fromImage(QImage.fromData(svg_bytes, 'SVG')))
+                    widget.setIcon(icon)
+
+        base_style = """
+            QToolbar QToolButton {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 10px;
+                margin: 0;
+            }
+
+            QToolbar QPushButton {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 12px;
+                margin: 0;
+            }
+
+            QToolbar QLineEdit {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 10px;
+                margin: 0;
+            }
+
+            QToolbar QLabel {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 8px;
+                margin: 0;
+            }
+
+            QToolBarExtension {
+                min-height: 52px;
+                max-height: 52px;
+                padding: 0;
+                margin: 0;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+            }
+
+            QToolBarExtension::menu-button {
+                padding: 0;
+                margin: 0;
+                background: transparent;
+                border: none;
+            }
+
+            QToolBarExtension::menu-arrow {
+                width: 12px;
+                height: 16px;
+                image: url("{arrow_svg}");
+            }
+        """
+        self._toolbar.setStyleSheet(base_style)
 
         if hasattr(self, "table_manager"):
             self.table_manager.set_dark_mode(is_dark)

@@ -3,7 +3,7 @@
 # 用法: powershell -ExecutionPolicy Bypass -File build_release.ps1 [-SkipBuild]
 param(
     [string]$Python = "E:\program\ANACONDA\envs\bishe\python.exe",
-    [string]$OutputRoot = "E:\",
+    [string]$OutputRoot = "E:\kokoro计时器历史版本",
     [switch]$SkipBuild
 )
 
@@ -35,6 +35,8 @@ if (-not $SkipBuild) {
             --output-dir=$Stage `
             --include-data-dir=icons=icons `
             --include-data-file=.env.example=.env.example `
+            --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\sqlite3.dll" `
+            --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\ffi.dll" `
             main.py
         if ($LASTEXITCODE -ne 0) { throw "主程序编译失败" }
     } finally {
@@ -49,6 +51,8 @@ if (-not $SkipBuild) {
             --windows-icon-from-ico=icons\icon.ico `
             --output-filename=log-console.exe `
             --output-dir=$Stage `
+            --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\sqlite3.dll" `
+            --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\ffi.dll" `
             log_console.py
         if ($LASTEXITCODE -ne 0) { throw "日志控制台编译失败" }
     } finally {
@@ -60,7 +64,6 @@ Write-Host "== [3/3] 组装发布目录 $DistDir ==" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force $DistDir | Out-Null
 Copy-Item (Join-Path $Stage "main.dist\*") $DistDir -Recurse -Force
 Copy-Item (Join-Path $Stage "log_console.dist\log-console.exe") $DistDir -Force
-
 
 Write-Host "打包完成: $DistDir" -ForegroundColor Green
 Write-Host "  kokoro-journey.exe  主程序（无黑窗，开机自启指向它）"
