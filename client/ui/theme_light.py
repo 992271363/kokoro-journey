@@ -136,7 +136,7 @@ QPushButton[group_btn="true"] {
     color: #52525b;
     border: 1px solid #e4e4e7;
     border-radius: 6px;
-    padding: 4px 10px;
+    padding: 4px 6px;
     font-weight: 500;
 }
 
@@ -443,7 +443,7 @@ QToolbar {
 QToolBar::separator {
     width: 1px;
     background-color: #e4e4e7;
-    margin: 4px 6px;
+    margin: 4px 3px;
 }
 
 /* 工具栏文字按钮（登录/退出等 QAction） */

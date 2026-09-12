@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QDialog, QPushButton, QLabel,
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
     QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup,
-    QGraphicsDropShadowEffect, QInputDialog, QColorDialog, QMessageBox
+    QGraphicsDropShadowEffect, QInputDialog, QColorDialog, QMessageBox,
+    QWidgetAction
 )
 
 from db.repository import AppRepository
@@ -189,32 +190,33 @@ class Mywindow(QMainWindow):
         toolbar.setFloatable(False)
         toolbar.setIconSize(QSize(27, 27))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        toolbar.layout().setSpacing(1)
         toolbar.setStyleSheet("""
-            QToolbar QToolButton {
+            QToolBar QToolButton {
                 min-height: 48px;
                 max-height: 48px;
-                padding: 0 10px;
+                padding: 0 6px;
                 margin: 0;
             }
 
-            QToolbar QPushButton {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 12px;
-                margin: 0;
-            }
-
-            QToolbar QLineEdit {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 10px;
-                margin: 0;
-            }
-
-            QToolbar QLabel {
+            QToolBar QPushButton {
                 min-height: 48px;
                 max-height: 48px;
                 padding: 0 8px;
+                margin: 0;
+            }
+
+            QToolBar QLineEdit {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 6px;
+                margin: 0;
+            }
+
+            QToolBar QLabel {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 2px;
                 margin: 0;
             }
 
@@ -279,13 +281,14 @@ class Mywindow(QMainWindow):
         self._group_btn_container = QWidget()
         self._group_btn_layout = QHBoxLayout(self._group_btn_container)
         self._group_btn_layout.setContentsMargins(0, 0, 0, 0)
-        self._group_btn_layout.setSpacing(4)
+        self._group_btn_layout.setSpacing(2)
         self._group_btn_container.setContextMenuPolicy(Qt.CustomContextMenu)
         self._group_btn_container.customContextMenuRequested.connect(self._on_group_context_menu)
         toolbar.addWidget(self._group_btn_container)
         toolbar.addWidget(self._add_spacer(3))
         self._rebuild_group_buttons()
         self.group_buttons.buttonClicked.connect(self._on_group_changed)
+        QTimer.singleShot(0, self._layout_group_buttons)
 
         self.search_edit = ToolbarSearchEdit()
         self.search_edit.setPlaceholderText("搜索名称...")
@@ -405,6 +408,9 @@ class Mywindow(QMainWindow):
         self.table_manager.hard_delete_requested.connect(self._on_hard_delete_requested)
         self.table_manager.table_width_hint.connect(self._adjust_window_width)
         self._apply_table_zoom_from_settings()
+        # Ctrl+滚轮 缩放：焦点在主窗口内任意控件上都生效，弹窗打开时不触发
+        self._zoom_wheel_accum = 0
+        QApplication.instance().installEventFilter(self)
 
         self.monitor_controller = MonitorController(self)
         self.monitor_controller.status_updated.connect(self.table_manager.update_status)
@@ -444,9 +450,11 @@ class Mywindow(QMainWindow):
         version_label = QLabel(VERSION)
         version_label.setProperty("role", "muted")
         version_label.setStyleSheet("font-size: 11px; color: #cbd5e1;")
+        self._version_label = version_label
         self.statusBar().addPermanentWidget(version_label)
         self._size_grip = StyledSizeGrip(self.statusBar())
         self.statusBar().addPermanentWidget(self._size_grip)
+        self._update_version_label_margin()
         self._refresh_toolbar_icons()
         self.statusBar().showMessage("系统就绪，正在初始化...", 3000)
 
@@ -495,6 +503,22 @@ class Mywindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._adjust_toolbar_layout()
+        self._layout_group_buttons()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            self._update_version_label_margin()
+
+    def _update_version_label_margin(self):
+        """尺寸手柄最大化/全屏时自动隐藏，此时给版本号右侧留白，避免贴边。"""
+        label = getattr(self, "_version_label", None)
+        if label is None:
+            return
+        if self.isMaximized() or self.isFullScreen():
+            label.setContentsMargins(0, 0, 8, 0)
+        else:
+            label.setContentsMargins(0, 0, 0, 0)
 
     def _toggle_monitor(self):
         if self.monitor_controller.is_paused:
@@ -574,6 +598,7 @@ class Mywindow(QMainWindow):
         self._group_btn_layout.addWidget(btn_all)
         if self._current_group_id is None:
             btn_all.setChecked(True)
+        self._btn_group_all = btn_all
 
         # 各分组按钮（可拖动排序）
         for gid, gname, color in groups:
@@ -583,6 +608,16 @@ class Mywindow(QMainWindow):
             if self._current_group_id == gid:
                 btn.setChecked(True)
 
+        # [「...」按钮] 分组溢出折叠（固定末尾，位于「+」之前）
+        self._btn_group_overflow = QPushButton("...")
+        self._btn_group_overflow.setFixedHeight(40)
+        self._btn_group_overflow.setFixedWidth(40)
+        self._btn_group_overflow.setToolTip("更多分组")
+        self._btn_group_overflow.setProperty("group_btn", True)
+        self._btn_group_overflow.setCheckable(True)
+        self._btn_group_overflow.clicked.connect(self._show_group_overflow_menu)
+        self._group_btn_layout.addWidget(self._btn_group_overflow)
+
         # [+按钮] 管理分组（固定末尾）
         btn_manage = QPushButton("+")
         btn_manage.setFixedHeight(40)
@@ -591,6 +626,128 @@ class Mywindow(QMainWindow):
         btn_manage.setProperty("group_btn", True)
         btn_manage.clicked.connect(self._open_group_dialog)
         self._group_btn_layout.addWidget(btn_manage)
+        self._btn_manage = btn_manage
+
+        self._hidden_group_buttons = []
+        self._layout_group_buttons()
+
+    def _available_group_width(self):
+        """计算分组区可用的横向宽度（固定预留其它控件，避免折叠抖动）。"""
+        total = self._toolbar.width()
+        if total <= 0:
+            total = self.width()
+        container = getattr(self, "_group_btn_container", None)
+        reserved = 0
+        for action in self._toolbar.actions():
+            if action.isSeparator():
+                reserved += 6
+                continue
+            widget = self._toolbar.widgetForAction(action)
+            if widget is None or widget is container:
+                continue
+            if widget.minimumWidth() > 0:
+                reserved += widget.minimumWidth()
+            else:
+                hint = widget.sizeHint().width()
+                reserved += hint if hint > 0 else widget.width()
+        reserved += 24
+        return max(80, total - reserved)
+
+    def _layout_group_buttons(self):
+        """按可用宽度显示分组按钮，放不下的收进「...」按钮。"""
+        if getattr(self, "_laying_out", False):
+            return
+        if not hasattr(self, "_group_btn_layout"):
+            return
+        self._laying_out = True
+        try:
+            layout = self._group_btn_layout
+            chips = []
+            for i in range(layout.count()):
+                w = layout.itemAt(i).widget()
+                if isinstance(w, GroupChipButton):
+                    chips.append(w)
+
+            avail = self._available_group_width()
+            if hasattr(self, "_btn_manage"):
+                avail -= self._btn_manage.width()
+            overflow = getattr(self, "_btn_group_overflow", None)
+            if overflow is not None:
+                avail -= overflow.width()
+            spacing = layout.spacing()
+
+            used = 0
+            hidden = []
+            for idx, btn in enumerate(chips):
+                w = btn.sizeHint().width() + spacing
+                if idx == 0 or used + w <= avail:
+                    btn.setVisible(True)
+                    used += w
+                else:
+                    btn.setVisible(False)
+                    hidden.append(btn)
+
+            self._hidden_group_buttons = hidden
+            if overflow is None:
+                return
+            active_hidden = (
+                self._current_group_id is not None
+                and any(b.property("group_id") == self._current_group_id for b in hidden)
+            )
+            if hidden:
+                overflow.setVisible(True)
+                if active_hidden:
+                    name = self._find_group_name(self._current_group_id) or "..."
+                    overflow.setText(name)
+                    overflow.setToolTip(name)
+                    overflow.setFixedWidth(
+                        min(140, overflow.fontMetrics().horizontalAdvance(name) + 24)
+                    )
+                    overflow.setChecked(True)
+                else:
+                    overflow.setText("...")
+                    overflow.setToolTip("更多分组")
+                    overflow.setFixedWidth(40)
+                    overflow.setChecked(False)
+            else:
+                overflow.setVisible(False)
+                overflow.setText("...")
+                overflow.setToolTip("更多分组")
+                overflow.setFixedWidth(40)
+                overflow.setChecked(False)
+        finally:
+            self._laying_out = False
+
+    def _show_group_overflow_menu(self):
+        """弹出被折叠的分组菜单。"""
+        overflow = getattr(self, "_btn_group_overflow", None)
+        if overflow is None:
+            return
+        menu = QMenu(self)
+        hidden = getattr(self, "_hidden_group_buttons", [])
+        for btn in hidden:
+            gid = btn.property("group_id")
+            act = menu.addAction(btn.text())
+            color = self._find_group_color(gid)
+            if color:
+                act.setIcon(QIcon(
+                    GroupChipButton("", None, draggable=False, window=None)._make_dot_icon(color)
+                ))
+            act.setCheckable(True)
+            act.setChecked(gid == self._current_group_id)
+            act.triggered.connect(lambda _, b=btn: self._select_group_button(b))
+        if hidden:
+            menu.addSeparator()
+        menu.addAction("管理分组...").triggered.connect(self._open_group_dialog)
+        menu.exec(overflow.mapToGlobal(QPoint(0, overflow.height())))
+        self._layout_group_buttons()
+
+    def _select_group_button(self, btn):
+        """从溢出菜单选择分组。"""
+        for b in self.group_buttons.buttons():
+            b.setChecked(b is btn)
+        self._on_group_changed(btn)
+        self._layout_group_buttons()
 
     def _move_group_button(self, src: "GroupChipButton", dst: "GroupChipButton"):
         """把 src 按钮移动到 dst 按钮的位置，并持久化新顺序。"""
@@ -617,12 +774,14 @@ class Mywindow(QMainWindow):
             if isinstance(w, GroupChipButton) and gid is not None:
                 ordered_ids.append(gid)
         AppRepository.set_groups_order(ordered_ids)
+        self._layout_group_buttons()
 
     def _on_group_changed(self, btn):
         """分组按钮点击，切换筛选。"""
         gid = btn.property("group_id")
         self._current_group_id = gid
         self._refresh_table(skip_width_hint=True)
+        self._layout_group_buttons()
 
     def _on_group_context_menu(self, pos):
         menu = QMenu(self)
@@ -647,9 +806,46 @@ class Mywindow(QMainWindow):
             color_menu.addAction("自定义...").triggered.connect(lambda: self._change_group_color(gid, None))
             color_menu.addAction("清除颜色").triggered.connect(lambda: self._change_group_color(gid, "__clear__"))
             menu.addSeparator()
+            self._add_danger_menu_action(menu, "删除分组...", lambda: self._delete_group(gid))
+            menu.addSeparator()
 
         menu.addAction("管理分组...").triggered.connect(self._open_group_dialog)
         menu.exec(self._group_btn_container.mapToGlobal(pos))
+
+    def _add_danger_menu_action(self, menu, text, slot):
+        """在菜单中插入一个红色（危险）项。QSS 无法按单项着色，故内嵌扁平按钮。"""
+        mode = self._settings.get("themeMode", "system")
+        if mode == "dark":
+            is_dark = True
+        elif mode == "system":
+            is_dark = get_system_theme() == "dark"
+        else:
+            is_dark = False
+        hover_bg = "#334155" if is_dark else "#eff6ff"
+
+        btn = QPushButton(text)
+        btn.setFlat(True)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(
+            "QPushButton {"
+            " color: #ef4444; background: transparent; border: none;"
+            " text-align: left; padding: 6px 24px; border-radius: 4px;"
+            "}"
+            "QPushButton:hover {"
+            f" background-color: {hover_bg};"
+            "}"
+        )
+
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(btn)
+
+        def _run():
+            menu.close()
+            slot()
+
+        btn.clicked.connect(_run)
+        menu.addAction(action)
+        return action
 
     def _rename_group(self, gid: int):
         name = self._find_group_name(gid)
@@ -999,31 +1195,31 @@ class Mywindow(QMainWindow):
                 widget.setIcon(icon)
 
         base_style = """
-            QToolbar QToolButton {
+            QToolBar QToolButton {
                 min-height: 48px;
                 max-height: 48px;
-                padding: 0 10px;
+                padding: 0 6px;
                 margin: 0;
             }
 
-            QToolbar QPushButton {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 12px;
-                margin: 0;
-            }
-
-            QToolbar QLineEdit {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 10px;
-                margin: 0;
-            }
-
-            QToolbar QLabel {
+            QToolBar QPushButton {
                 min-height: 48px;
                 max-height: 48px;
                 padding: 0 8px;
+                margin: 0;
+            }
+
+            QToolBar QLineEdit {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 6px;
+                margin: 0;
+            }
+
+            QToolBar QLabel {
+                min-height: 48px;
+                max-height: 48px;
+                padding: 0 2px;
                 margin: 0;
             }
 
@@ -1065,6 +1261,34 @@ class Mywindow(QMainWindow):
     def open_settings_dialog(self):
         total_runtime = self._settings.get("appTotalRuntime", 0)
         SettingsDialog(self, self._app_start_time, total_runtime).exec()
+
+    def eventFilter(self, obj, event):
+        if (
+            isinstance(obj, QWidget)
+            and event.type() == QEvent.Wheel
+            and event.modifiers() & Qt.ControlModifier
+        ):
+            # 只在事件落在主窗口内的控件上时缩放；弹窗等顶层窗口不处理
+            target = obj
+            if target.window() is self:
+                # 按 120 为一个刻度累积，兼容高分辨率触控板的小步长事件
+                self._zoom_wheel_accum += event.angleDelta().y()
+                notches = int(self._zoom_wheel_accum // 120)
+                if notches:
+                    self._zoom_wheel_accum -= notches * 120
+                    self._change_table_zoom(notches)
+                event.accept()
+                return True
+        return False
+
+    def _change_table_zoom(self, notches):
+        """按刻度调整列表缩放，范围 75%~200%，步进 5%（与缩放对话框一致）"""
+        current = int(self._settings.get("tableZoom", 100))
+        new_zoom = max(75, min(200, current + notches * 5))
+        if new_zoom == current:
+            return
+        self.table_manager.apply_zoom(new_zoom / 100.0)
+        self._settings.set("tableZoom", new_zoom)
 
     def _apply_table_zoom_from_settings(self):
         zoom = int(self._settings.get("tableZoom", 100))
