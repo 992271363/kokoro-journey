@@ -385,6 +385,28 @@ class SettingsDialog(QDialog):
 
         content_layout.addWidget(display_group)
 
+        # --- 云存档 ---
+        cloud_group = QGroupBox("云存档")
+        cloud_form = QFormLayout(cloud_group)
+        cloud_form.setContentsMargins(10, 16, 10, 8)
+
+        self.check_cloud_enabled = QCheckBox("启用云存档同步")
+        self.check_cloud_enabled.setToolTip("关闭后不进行任何云存档操作。")
+        self.check_cloud_enabled.setChecked(bool(Settings().get("cloudSaveEnabled", True)))
+        cloud_form.addRow(self.check_cloud_enabled)
+
+        self.check_cloud_sync_login = QCheckBox("登录时同步存档")
+        self.check_cloud_sync_login.setToolTip("登录后自动比对并同步云端与本地存档（不覆盖有改动的本地存档）。")
+        self.check_cloud_sync_login.setChecked(bool(Settings().get("cloudSyncOnLogin", False)))
+        cloud_form.addRow(self.check_cloud_sync_login)
+
+        self.check_cloud_auto_upload = QCheckBox("关闭游戏后自动上传")
+        self.check_cloud_auto_upload.setToolTip("仅对在个人中心关联了应用的存档条目生效。")
+        self.check_cloud_auto_upload.setChecked(bool(Settings().get("cloudAutoUploadOnClose", False)))
+        cloud_form.addRow(self.check_cloud_auto_upload)
+
+        content_layout.addWidget(cloud_group)
+
         # --- 数据 ---
         data_group = QGroupBox("数据")
         data_form = QFormLayout(data_group)
@@ -640,6 +662,10 @@ class SettingsDialog(QDialog):
         Settings().set("idleTipEnabled", self.check_idle_tip.isChecked())
         Settings().set("showTrayIcon", self.check_show_tray.isChecked())
         Settings().set("hideWindowOnPick", self.check_hide_on_pick.isChecked())
+
+        Settings().set("cloudSaveEnabled", self.check_cloud_enabled.isChecked())
+        Settings().set("cloudSyncOnLogin", self.check_cloud_sync_login.isChecked())
+        Settings().set("cloudAutoUploadOnClose", self.check_cloud_auto_upload.isChecked())
 
         if autostart.is_available():
             if self.check_autostart.isChecked():

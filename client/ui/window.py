@@ -7,7 +7,7 @@ import win32gui
 import win32con
 import win32process
 from typing import Optional
-from PySide6.QtCore import Qt, QTimer, QSize, QObject, QEvent, Signal, QByteArray, QPoint, QMimeData
+from PySide6.QtCore import Qt, QTimer, QSize, QObject, QEvent, Signal, QByteArray, QPoint, QMimeData, QThread
 from PySide6.QtGui import QAction, QKeySequence, QIcon, QImage, QColor, QPainter, QPixmap, QDrag, QCursor, QPolygon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QDialog, QPushButton, QLabel,
@@ -979,6 +979,81 @@ class Mywindow(QMainWindow):
 
     def _on_session_finished(self, exe_name, duration):
         self._refresh_table(skip_width_hint=True, preserve_sort=True)
+        self._maybe_auto_upload_save(exe_name)
+
+    # ---------------- 云存档自动化（P2） ----------------
+
+    def _cloud_enabled(self) -> bool:
+        return bool(self._settings.get("cloudSaveEnabled", True))
+
+    def _run_bg_worker(self, fn, on_done, *args):
+        from core.save_sync import SaveSyncWorker
+        thread = QThread(self)
+        worker = SaveSyncWorker(fn, *args)
+        self._bg_threads = getattr(self, "_bg_threads", [])
+        self._bg_threads.append((thread, worker))
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_cloud_progress)
+        worker.finished.connect(on_done)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(
+            lambda t=thread, w=worker: self._bg_threads.remove((t, w))
+            if (t, w) in self._bg_threads else None)
+        thread.start()
+
+    def _on_cloud_progress(self, done, total, label):
+        self.update_status_bar(f"{label} {done}/{total}")
+
+    def _maybe_cloud_sync_on_login(self):
+        if not self.token or not self._cloud_enabled():
+            return
+        if not self._settings.get("cloudSyncOnLogin", False):
+            return
+        from core import save_auto as sa
+        self._run_bg_worker(sa.auto_sync_all_on_login, self._on_cloud_login_done, self.token)
+
+    def _on_cloud_login_done(self, ok, msg):
+        self.update_status_bar(f"云存档：{msg}")
+
+    def _maybe_auto_upload_save(self, exe_name):
+        if not self.token or not self._cloud_enabled():
+            return
+        if not self._settings.get("cloudAutoUploadOnClose", False):
+            return
+        try:
+            from core import save_auto as sa
+            games = sa.match_save_games_for_exe(exe_name)
+        except Exception:
+            return
+        if not games:
+            return
+        self._auto_upload_queue = list(games)
+        self._run_next_auto_upload()
+
+    def _run_next_auto_upload(self):
+        queue = getattr(self, "_auto_upload_queue", [])
+        if not queue:
+            return
+        import core.save_sync as ss
+        entry = queue.pop(0)
+        self._run_bg_worker(
+            ss.upload_game,
+            lambda ok, res, e=entry: self._on_auto_upload_done(ok, res, e),
+            self.token, entry.local_path, entry.name, entry.server_id)
+
+    def _on_auto_upload_done(self, ok, res, entry):
+        try:
+            if ok:
+                if entry.server_id is None:
+                    AppRepository.set_save_game_server_id(entry.id, res["server_id"])
+                AppRepository.mark_save_game_synced(entry.id, res["version"], res["fingerprint"])
+                self.update_status_bar(f"云存档：{entry.name} 已自动上传 v{res['version']}")
+            else:
+                self.update_status_bar(f"云存档自动上传失败：{res}")
+        finally:
+            self._run_next_auto_upload()
 
     def _apply_table_search(self):
         if not hasattr(self, "search_edit"):
@@ -1201,6 +1276,7 @@ class Mywindow(QMainWindow):
             self.logout_action.setVisible(True)
             print("[MainWindow] UI 已更新: 显示用户名, 隐藏登录按钮, 显示退出按钮")
             self.run_immediate_sync()
+            self._maybe_cloud_sync_on_login()
         else:
             print(f"[MainWindow] 登录对话框未返回 Accepted, 返回值: {result}")
 
