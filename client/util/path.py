@@ -76,9 +76,9 @@ def data_dir_source() -> str:
 
 
 def is_data_dir_configured() -> bool:
-    d = _from_settings_json() or _from_portable()
-    if d is None:
-        return False
-    if not os.path.exists(os.path.join(d, "local_client.db")):
-        return False
-    return True
+    """只要 settings.json/portable 给出了有效数据目录即视为已配置。
+
+    不再要求 local_client.db 已存在——缺失时由 create_db_and_tables() 新建，
+    避免“更改存储位置到新目录后重启又弹向导、选择被改回默认”。
+    """
+    return (_from_settings_json() or _from_portable()) is not None

@@ -502,18 +502,53 @@ class SettingsDialog(QDialog):
             self._label_total.setText(f"累计运行：{format_seconds_to_text(total_secs)}")
 
     def _on_change_data_dir(self):
+        old_dir = get_data_dir()
         wizard = FirstRunWizard(self)
         if wizard.exec() != QDialog.Accepted:
             return
         new_path = wizard.selected_path()
+
+        if os.path.normcase(os.path.normpath(old_dir)) == os.path.normcase(os.path.normpath(new_path)):
+            QMessageBox.information(self, "提示", "数据存储位置未改变。")
+            return
+
+        target_db = os.path.join(new_path, "local_client.db")
+        if os.path.exists(target_db):
+            box = QMessageBox(self)
+            box.setWindowTitle("目标位置已存在数据库")
+            box.setIcon(QMessageBox.Warning)
+            box.setText(
+                "目标目录中已存在数据库文件 local_client.db。\n请选择处理方式："
+            )
+            btn_use = box.addButton("使用目标位置的数据库", QMessageBox.AcceptRole)
+            btn_overwrite = box.addButton(
+                "用原先位置的数据库覆盖（生成备份）", QMessageBox.DestructiveRole
+            )
+            btn_cancel = box.addButton("取消", QMessageBox.RejectRole)
+            box.setDefaultButton(btn_cancel)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is btn_cancel or clicked is None:
+                return
+            mode = "use_target" if clicked is btn_use else "overwrite"
+        else:
+            mode = "move"
+
         Settings().set("dataDirectory", new_path)
+        Settings().set("pendingDataMigration", {
+            "from": old_dir,
+            "to": new_path,
+            "mode": mode,
+        })
         update_state(new_path)
         self.path_edit.setText(new_path)
+
         reply = QMessageBox.question(
             self,
             "需要重启",
-            "数据存储位置已更改，是否立即重启应用？",
+            "数据存储位置已更改，重启后将自动迁移数据。\n是否立即重启应用？",
             QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
         )
         if reply == QMessageBox.Yes:
             self._restart_app()

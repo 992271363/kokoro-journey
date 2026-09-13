@@ -30,6 +30,7 @@ class Settings:
     def save(self):
         path = self._get_file_path()
         try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(self._data, f, ensure_ascii=False, indent=2)
         except Exception as e:
