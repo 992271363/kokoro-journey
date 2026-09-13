@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QFileDialog, QMessageBox
 )
-from util.path import _default_appdata, _program_dir
+from util.path import _default_appdata, _program_dir, _settings_dir
 from util.config import Settings
 from util.state import update_state
 
@@ -107,6 +107,16 @@ class FirstRunWizard(QDialog):
 
     def _confirm(self):
         path = self._selected_path
+
+        # 禁止把数据目录设为程序配置目录本身（避免配置文件与用户数据混在一起）
+        if os.path.normcase(os.path.normpath(path)) == os.path.normcase(os.path.normpath(_settings_dir())):
+            QMessageBox.warning(
+                self,
+                "目录不可用",
+                "不能把数据目录设为程序配置目录本身，\n请选择其子目录或其他位置。"
+            )
+            return
+
         try:
             os.makedirs(path, exist_ok=True)
             # 测试可写性

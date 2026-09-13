@@ -61,6 +61,10 @@ class ServerAppUsageSummary(Base):
 #进程会话
 class ServerProcessSession(Base):
     __tablename__ = 'server_process_sessions'
+    __table_args__ = (
+        UniqueConstraint('summary_id', 'session_start_time',
+                         name='uix_server_session_summary_start'),
+    )
     id = Column(Integer, primary_key=True)
 
     # 外键：关联到总账

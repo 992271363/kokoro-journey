@@ -10,6 +10,9 @@
 #ifndef MyAppVersion
 #define MyAppVersion "v2026.9.9-1.0.0"
 #endif
+#ifndef MyFileVersion
+#define MyFileVersion "1.0.0.0"
+#endif
 #define MyAppPublisher "Kokoro Journey"
 #define MyAppExeName "kokoro-journey.exe"
 #define MyAppLogExeName "log-console.exe"
@@ -18,6 +21,7 @@
 [Setup]
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+VersionInfoVersion={#MyFileVersion}
 AppPublisher={#MyAppPublisher}
 AppId={{B7F3A2C1-8D4E-4F6A-9C2B-1E5D7A8F3E90}
 DefaultDirName={localappdata}\Programs\Kokoro Journey
@@ -28,8 +32,8 @@ SetupIconFile=..\client\icons\icon.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64
-ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
@@ -38,7 +42,7 @@ UninstallDisplayName={#MyAppName}
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "额外任务:"
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "额外任务:"; Flags: unchecked
 Name: "autostart"; Description: "开机自动启动"; GroupDescription: "额外任务:"; Flags: unchecked
 
 [Files]
@@ -61,103 +65,148 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: no
 var
   ShouldDeleteData: Boolean;
   UninstallConfigForm: TForm;
-  DataCheckbox: TCheckBox;
-  UninstallResult: Integer;
+  KeepDataCheckbox: TNewCheckBox;
+  WarnLabel: TNewStaticText;
 
 function GetDataDirFromStateFile: String;
+var
+  StateFile: String;
+  Raw: AnsiString;
+  S: String;
+  P, Q: Integer;
 begin
   Result := ExpandConstant('{localappdata}\Kokoro Journey');
+  StateFile := ExpandConstant('{localappdata}\Kokoro Journey\uninstall_state.json');
+  if not FileExists(StateFile) then
+    Exit;
+  if not LoadStringFromFile(StateFile, Raw) then
+    Exit;
+  S := String(Raw);
+  P := Pos('"dataDirectory":', S);
+  if P = 0 then
+    Exit;
+  P := P + Length('"dataDirectory":');
+  S := Trim(Copy(S, P, Length(S)));
+  if (Length(S) > 0) and (S[1] = '"') then
+    Delete(S, 1, 1);
+  Q := Pos('"', S);
+  if Q > 0 then
+  begin
+    Result := Copy(S, 1, Q - 1);
+    StringChangeEx(Result, '\\', '\', True);
+  end;
 end;
 
-procedure NextBtnClick(Sender: TObject);
+procedure KeepDataCheckboxClick(Sender: TObject);
 begin
-  ShouldDeleteData := not DataCheckbox.Checked;
-  UninstallResult := mrOK;
-  UninstallConfigForm.Close;
-end;
-
-procedure CancelBtnClick(Sender: TObject);
-begin
-  UninstallResult := mrCancel;
-  UninstallConfigForm.Close;
+  WarnLabel.Visible := not KeepDataCheckbox.Checked;
 end;
 
 function InitializeUninstall: Boolean;
 var
-  TitleLabel, DescLabel, DataLabel, WarnLabel: TLabel;
-  NextBtn, CancelBtn: TButton;
+  TitleText, DescText, PathText: TNewStaticText;
+  UninstallBtn, CancelBtn: TNewButton;
   DataDir: String;
 begin
   ShouldDeleteData := False;
+
+  // 静默卸载（/SILENT、/VERYSILENT 等）：不显示自定义窗口，默认保留用户数据
+  if UninstallSilent then
+  begin
+    Result := True;
+    Exit;
+  end;
 
   DataDir := GetDataDirFromStateFile;
   if DataDir = '' then
     DataDir := ExpandConstant('{localappdata}\Kokoro Journey');
 
+  // 使用 Inno 自带的主题控件（与安装/卸载向导风格一致）
   UninstallConfigForm := TForm.Create(nil);
-  UninstallConfigForm.BorderStyle := bsDialog;
-  UninstallConfigForm.Caption := '卸载设置';
-  UninstallConfigForm.Width := 480;
-  UninstallConfigForm.Height := 310;
-  UninstallConfigForm.Position := poScreenCenter;
+  try
+    UninstallConfigForm.BorderStyle := bsDialog;
+    UninstallConfigForm.ClientWidth := ScaleX(432);
+    UninstallConfigForm.ClientHeight := ScaleY(250);
+    UninstallConfigForm.Caption := '卸载 Kokoro Journey';
+    UninstallConfigForm.Position := poScreenCenter;
 
-  TitleLabel := TLabel.Create(UninstallConfigForm);
-  TitleLabel.Parent := UninstallConfigForm;
-  TitleLabel.Caption := '卸载 Kokoro Journey';
-  TitleLabel.Font.Size := 16;
-  TitleLabel.Font.Style := [fsBold];
-  TitleLabel.Left := 30;
-  TitleLabel.Top := 25;
+    TitleText := TNewStaticText.Create(UninstallConfigForm);
+    TitleText.Parent := UninstallConfigForm;
+    TitleText.Caption := '卸载 Kokoro Journey';
+    TitleText.Font.Style := [fsBold];
+    TitleText.Font.Size := 12;
+    TitleText.Left := ScaleX(24);
+    TitleText.Top := ScaleY(20);
 
-  DescLabel := TLabel.Create(UninstallConfigForm);
-  DescLabel.Parent := UninstallConfigForm;
-  DescLabel.Caption := '请选择数据处理方式：';
-  DescLabel.Left := 30;
-  DescLabel.Top := 65;
+    DescText := TNewStaticText.Create(UninstallConfigForm);
+    DescText.Parent := UninstallConfigForm;
+    DescText.Caption := '即将从本机移除 Kokoro Journey，请选择是否保留用户数据。';
+    DescText.AutoSize := False;
+    DescText.WordWrap := True;
+    DescText.Width := ScaleX(384);
+    DescText.Height := ScaleY(36);
+    DescText.Left := ScaleX(26);
+    DescText.Top := ScaleY(54);
 
-  DataLabel := TLabel.Create(UninstallConfigForm);
-  DataLabel.Parent := UninstallConfigForm;
-  DataLabel.Caption := '用户数据位置：' + DataDir;
-  DataLabel.Left := 30;
-  DataLabel.Top := 95;
+    KeepDataCheckbox := TNewCheckBox.Create(UninstallConfigForm);
+    KeepDataCheckbox.Parent := UninstallConfigForm;
+    KeepDataCheckbox.Caption := '保留用户数据（数据库、设置、历史记录等）';
+    KeepDataCheckbox.Checked := True;
+    KeepDataCheckbox.Left := ScaleX(26);
+    KeepDataCheckbox.Top := ScaleY(100);
+    KeepDataCheckbox.Width := ScaleX(384);
+    KeepDataCheckbox.OnClick := @KeepDataCheckboxClick;
 
-  DataCheckbox := TCheckBox.Create(UninstallConfigForm);
-  DataCheckbox.Parent := UninstallConfigForm;
-  DataCheckbox.Caption := '保留用户数据（数据库、设置、历史记录等）';
-  DataCheckbox.Checked := True;
-  DataCheckbox.Left := 40;
-  DataCheckbox.Top := 125;
-  DataCheckbox.Width := 400;
+    WarnLabel := TNewStaticText.Create(UninstallConfigForm);
+    WarnLabel.Parent := UninstallConfigForm;
+    WarnLabel.Caption := '取消勾选后，用户数据将被永久删除，无法恢复。';
+    WarnLabel.Font.Color := clMaroon;
+    WarnLabel.AutoSize := False;
+    WarnLabel.WordWrap := True;
+    WarnLabel.Width := ScaleX(364);
+    WarnLabel.Height := ScaleY(34);
+    WarnLabel.Left := ScaleX(46);
+    WarnLabel.Top := ScaleY(124);
+    WarnLabel.Visible := False;
 
-  WarnLabel := TLabel.Create(UninstallConfigForm);
-  WarnLabel.Parent := UninstallConfigForm;
-  WarnLabel.Caption := '取消勾选后，用户数据将被永久删除，无法恢复。';
-  WarnLabel.Font.Style := [fsItalic];
-  WarnLabel.Font.Color := clMaroon;
-  WarnLabel.Left := 60;
-  WarnLabel.Top := 155;
+    PathText := TNewStaticText.Create(UninstallConfigForm);
+    PathText.Parent := UninstallConfigForm;
+    PathText.Caption := '用户数据位置：' + DataDir;
+    PathText.Font.Color := $808080;
+    PathText.AutoSize := False;
+    PathText.WordWrap := True;
+    PathText.Width := ScaleX(384);
+    PathText.Height := ScaleY(32);
+    PathText.Left := ScaleX(26);
+    PathText.Top := ScaleY(164);
 
-  NextBtn := TButton.Create(UninstallConfigForm);
-  NextBtn.Parent := UninstallConfigForm;
-  NextBtn.Caption := '下一步';
-  NextBtn.Default := True;
-  NextBtn.Left := 180;
-  NextBtn.Top := 210;
-  NextBtn.Width := 85;
-  NextBtn.OnClick := @NextBtnClick;
+    CancelBtn := TNewButton.Create(UninstallConfigForm);
+    CancelBtn.Parent := UninstallConfigForm;
+    CancelBtn.Caption := '取消';
+    CancelBtn.Width := ScaleX(88);
+    CancelBtn.Height := ScaleY(26);
+    CancelBtn.Left := UninstallConfigForm.ClientWidth - ScaleX(24) - CancelBtn.Width;
+    CancelBtn.Top := UninstallConfigForm.ClientHeight - ScaleY(24) - CancelBtn.Height;
+    CancelBtn.ModalResult := mrCancel;
+    CancelBtn.Cancel := True;
 
-  CancelBtn := TButton.Create(UninstallConfigForm);
-  CancelBtn.Parent := UninstallConfigForm;
-  CancelBtn.Caption := '取消';
-  CancelBtn.Left := 275;
-  CancelBtn.Top := 210;
-  CancelBtn.Width := 85;
-  CancelBtn.OnClick := @CancelBtnClick;
+    UninstallBtn := TNewButton.Create(UninstallConfigForm);
+    UninstallBtn.Parent := UninstallConfigForm;
+    UninstallBtn.Caption := '卸载';
+    UninstallBtn.Width := ScaleX(88);
+    UninstallBtn.Height := ScaleY(26);
+    UninstallBtn.Left := CancelBtn.Left - ScaleX(10) - UninstallBtn.Width;
+    UninstallBtn.Top := CancelBtn.Top;
+    UninstallBtn.ModalResult := mrOk;
+    UninstallBtn.Default := True;
 
-  UninstallResult := mrCancel;
-  UninstallConfigForm.ShowModal;
-  Result := UninstallResult = mrOK;
-  UninstallConfigForm.Free;
+    UninstallConfigForm.ActiveControl := KeepDataCheckbox;
+    Result := UninstallConfigForm.ShowModal = mrOk;
+    ShouldDeleteData := Result and (not KeepDataCheckbox.Checked);
+  finally
+    UninstallConfigForm.Free;
+    UninstallConfigForm := nil;
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

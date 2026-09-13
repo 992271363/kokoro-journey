@@ -56,8 +56,8 @@ if (-not $SkipBuild) {
                 --product-version=$FileVersion `
                 --include-data-dir=icons=icons `
                 --include-data-file=.env.example=.env.example `
-                --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\sqlite3.dll" `
-                --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\ffi.dll" `
+                --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\sqlite3.dll=sqlite3.dll" `
+                --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\ffi.dll=ffi.dll" `
                 main.py
             if ($LASTEXITCODE -ne 0) { throw "主程序编译失败" }
         } finally {
@@ -76,8 +76,8 @@ if (-not $SkipBuild) {
                 --product-name="Kokoro Journey" `
                 --file-version=$FileVersion `
                 --product-version=$FileVersion `
-                --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\sqlite3.dll" `
-                --include-libs="E:\program\ANACONDA\envs\bishe\Library\bin\ffi.dll" `
+                --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\sqlite3.dll=sqlite3.dll" `
+                --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\ffi.dll=ffi.dll" `
                 log_console.py
             if ($LASTEXITCODE -ne 0) { throw "日志控制台编译失败" }
         } finally {

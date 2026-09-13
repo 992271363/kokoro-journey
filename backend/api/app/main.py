@@ -1,5 +1,5 @@
 from typing import List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -15,6 +15,17 @@ def ensure_aware_dt(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def normalize_start_time(dt: datetime) -> datetime:
+    """把会话起始时间归一到 UTC 秒精度，作为幂等业务键 (summary_id, session_start_time)。
+
+    客户端带微秒上传，而数据库列为秒精度；统一到整秒后才能稳定地做存在性判断。
+    """
+    dt = ensure_aware_dt(dt)
+    if dt is None:
+        return None
+    return dt.astimezone(timezone.utc).replace(microsecond=0)
 
 # 初始化数据库表
 models.Base.metadata.create_all(bind=database.engine)
@@ -72,8 +83,24 @@ def sync_sessions_from_client(
 
             #current_session_focus_seconds = sum(act.focus_duration_seconds for act in session_dto.activities)
             current_session_focus_seconds = session_dto.total_focus_seconds
-            start_time = ensure_aware_dt(session_dto.session_start_time)
+            start_time = normalize_start_time(session_dto.session_start_time)
             end_time = ensure_aware_dt(session_dto.session_end_time)
+
+            # 幂等去重：业务键 (summary_id, session_start_time)；已存在则整条跳过，
+            # 不新增 session、不累加 summary、不写 activities。
+            # 采用 ±1 秒窗口，兼容历史行可能因库精度产生的四舍五入/截断差异。
+            if summary is not None:
+                existing = db.query(models.ServerProcessSession).filter(
+                    models.ServerProcessSession.summary_id == summary.id,
+                    models.ServerProcessSession.session_start_time >= start_time - timedelta(seconds=1),
+                    models.ServerProcessSession.session_start_time < start_time + timedelta(seconds=1),
+                ).first()
+                if existing is not None:
+                    logger.info(
+                        f"跳过重复会话: summary_id={summary.id}, start={start_time.isoformat()}"
+                    )
+                    continue
+
             if not summary:
                 summary = models.ServerAppUsageSummary(
                     application=watched_app,
@@ -84,6 +111,7 @@ def sync_sessions_from_client(
                     total_focus_time_seconds=current_session_focus_seconds
                 )
                 db.add(summary)
+                db.flush()
             else:
                 summary.total_lifetime_seconds += session_dto.total_lifetime_seconds
                 summary.total_focus_time_seconds += current_session_focus_seconds
@@ -91,8 +119,6 @@ def sync_sessions_from_client(
                 summary.last_seen_end_at = end_time
                 if not summary.first_seen_at or ensure_aware_dt(summary.first_seen_at) > start_time:
                     summary.first_seen_at = start_time
-            
-            db.flush()
 
             #创建ProcessSession
             new_session = models.ServerProcessSession(

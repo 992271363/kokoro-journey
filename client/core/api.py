@@ -67,7 +67,8 @@ def api_login(username: str, password: str) -> Tuple[LoginStatus, Optional[str]]
         print(f"登录API请求失败，底层网络错误: {e}")
         return (LoginStatus.NETWORK_ERROR, None)
 
-def send_data_to_api(data_list: List[Dict[str, Any]], endpoint: str, token: str) -> bool:
+def send_data_to_api(data_list: List[Dict[str, Any]], endpoint: str, token: str,
+                     timeout: int = 30) -> bool:
     if not data_list:
         return True
 
@@ -75,7 +76,7 @@ def send_data_to_api(data_list: List[Dict[str, Any]], endpoint: str, token: str)
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
-        response = requests.post(target_url, json=data_list, headers=headers, timeout=5) #可以调整超时时间
+        response = requests.post(target_url, json=data_list, headers=headers, timeout=timeout)
         response.raise_for_status()
         print(f"成功发送 {len(data_list)} 条数据到 {endpoint}")
         return True

@@ -11,6 +11,7 @@ class SyncController(QObject):
     _request_pause = Signal()
     _request_resume = Signal()
     _request_set_interval = Signal(int)
+    _request_sync_now = Signal()
 
     def __init__(self, token_provider: Callable[[], Optional[str]], parent=None):
         super().__init__(parent)
@@ -29,6 +30,7 @@ class SyncController(QObject):
         self._request_pause.connect(self._worker.pause, Qt.QueuedConnection)
         self._request_resume.connect(self._worker.resume, Qt.QueuedConnection)
         self._request_set_interval.connect(self._worker.set_interval, Qt.QueuedConnection)
+        self._request_sync_now.connect(self._worker.perform_sync_check, Qt.QueuedConnection)
         self._worker.status_updated.connect(self.status_updated, Qt.QueuedConnection)
         self._worker.finished.connect(self._thread.quit)
         self._thread.finished.connect(self._on_thread_finished)
@@ -54,6 +56,11 @@ class SyncController(QObject):
     def set_interval(self, seconds: int):
         if self._worker:
             self._request_set_interval.emit(int(seconds))
+
+    def request_sync_now(self):
+        """请求一次立即同步（在后台 worker 线程执行，不阻塞 UI）。"""
+        if self._worker:
+            self._request_sync_now.emit()
 
     def _on_thread_finished(self):
         if self._worker:

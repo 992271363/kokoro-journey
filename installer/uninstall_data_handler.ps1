@@ -1,6 +1,6 @@
-param(
+﻿param(
     [string]$StateFile,
-    [bool]$DeleteData = $false
+    [switch]$DeleteData
 )
 
 # ============================================================================
@@ -73,7 +73,14 @@ try {
 
     # --- 处理数据目录 ---
     if ((Test-Path $dataDir) -and (-not (& $isDangerous $dataDir))) {
-        $kokoroPatterns = @("local_client.db", "failed_sessions.json", "local_client_*.bak")
+        $kokoroPatterns = @(
+            "local_client.db",
+            "local_client.db-*",          # sqlite 事务/WAL 附属文件
+            "local_client.db.Back*",      # 迁移时的备份 (local_client.db.Back1 ...)
+            "failed_sessions.json",
+            "failed_sessions_dead.json",
+            "local_client_*.bak"
+        )
 
         foreach ($pattern in $kokoroPatterns) {
             $kokoroMatches = Get-ChildItem $dataDir -Force -Filter $pattern

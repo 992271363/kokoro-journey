@@ -1,4 +1,5 @@
 import datetime
+import json
 
 from PySide6.QtCore import QObject, Signal, Slot, QTimer, Qt
 from sqlalchemy.orm import joinedload, Session
@@ -74,6 +75,55 @@ def mark_sessions_as_synced(sessions: List[ProcessSession]):
         db.rollback()
     finally:
         db.close()
+
+
+def _estimate_size(item) -> int:
+    """估算单条数据序列化后的字节数（用于按大小分批）。"""
+    return len(json.dumps(item, ensure_ascii=False).encode("utf-8"))
+
+
+def sync_sessions_batched(data_list, sessions_list, token,
+                          batch_size: int = 200,
+                          max_bytes: int = 4 * 1024 * 1024,
+                          progress_cb=None):
+    """按“条数 / 字节上限”分批上传会话，每批成功即标记为已同步。
+
+    - 任一批失败则停止，返回 (False, 已成功条数)，未成功的留待下一轮重试；
+    - 返回 (True, 总条数) 表示全部成功。
+    """
+    total = len(data_list)
+    if total == 0:
+        return True, 0
+
+    uploaded = 0
+    i = 0
+    while i < total:
+        j = i
+        size = 0
+        while j < total and (j - i) < batch_size:
+            item_size = _estimate_size(data_list[j])
+            if j > i and size + item_size > max_bytes:
+                break
+            size += item_size
+            j += 1
+
+        chunk = data_list[i:j]
+        chunk_sessions = sessions_list[i:j]
+        if not send_data_to_api(chunk, "/sync/sessions/", token):
+            print(f"[Sync Util] 分批上传在第 {uploaded} 条后失败，剩余将在下一轮重试。")
+            return False, uploaded
+
+        mark_sessions_as_synced(chunk_sessions)
+        uploaded += len(chunk)
+        print(f"[Sync Util] 已上传 {uploaded}/{total} 条会话。")
+        if progress_cb:
+            try:
+                progress_cb(uploaded, total)
+            except Exception:
+                pass
+        i = j
+
+    return True, uploaded
 
 
 def get_and_prepare_daily_data():
@@ -179,11 +229,21 @@ class ApiSyncWorker(QObject):
         if not data_to_send:
             self.status_updated.emit("后台检查：数据已是最新。")
         else:
-            self.status_updated.emit(f"后台发现 {len(data_to_send)} 个新会话，上传中...")
-            success = send_data_to_api(data_to_send, endpoint="/sync/sessions/", token=token)
-            if success:
-                mark_sessions_as_synced(sessions_to_mark)
-                self.status_updated.emit(f"后台成功同步 {len(data_to_send)} 个会话。")
+            total = len(data_to_send)
+            self.status_updated.emit(f"后台发现 {total} 个新会话，分批上传中...")
+
+            def _progress(done, tot):
+                self.status_updated.emit(f"后台同步进度：{done}/{tot}")
+
+            ok, uploaded = sync_sessions_batched(
+                data_to_send, sessions_to_mark, token, progress_cb=_progress
+            )
+            if ok:
+                self.status_updated.emit(f"后台成功同步 {uploaded} 个会话。")
+            elif uploaded > 0:
+                self.status_updated.emit(
+                    f"后台同步部分成功（{uploaded}/{total}），剩余将在下一周期重试。"
+                )
             else:
                 self.status_updated.emit("后台同步失败，将在下一周期重试。")
 
