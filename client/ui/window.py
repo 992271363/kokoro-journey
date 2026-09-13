@@ -367,6 +367,9 @@ class Mywindow(QMainWindow):
         a = QAction("设置…", self)
         a.triggered.connect(self.open_settings_dialog)
         tm.addAction(a)
+        a = QAction("个人中心…", self)
+        a.triggered.connect(self.open_personal_center)
+        tm.addAction(a)
         a = QAction("数据转移…", self)
         a.triggered.connect(lambda: DataTransferDialog(self).exec())
         tm.addAction(a)
@@ -1320,7 +1323,21 @@ class Mywindow(QMainWindow):
         total_runtime = self._settings.get("appTotalRuntime", 0)
         SettingsDialog(self, self._app_start_time, total_runtime).exec()
 
+    def open_personal_center(self):
+        if not self.token:
+            QMessageBox.information(self, "提示", "请先登录后再进入个人中心。")
+            return
+        from ui.personal_center import PersonalCenter
+        PersonalCenter(self, self.token, self.username).exec()
+
     def eventFilter(self, obj, event):
+        if (
+            obj is getattr(self, "user_show", None)
+            and event.type() == QEvent.MouseButtonPress
+            and event.button() == Qt.LeftButton
+        ):
+            self.open_personal_center()
+            return True
         if (
             isinstance(obj, QWidget)
             and event.type() == QEvent.Wheel

@@ -1,3 +1,4 @@
+import datetime
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -7,7 +8,8 @@ from sqlalchemy import distinct, func
 from db.database import SessionLocal
 from db.models import (
     WatchedApplication, AppUsageSummary, AppDailyUsage,
-    ProcessSession, FocusActivity, AppGroup, AppGroupAssociation, AppColorTag
+    ProcessSession, FocusActivity, AppGroup, AppGroupAssociation, AppColorTag,
+    SaveGame
 )
 from core.tracker import add_or_get_watched_app
 from util.path import normalize_exe_path
@@ -411,6 +413,143 @@ class AppRepository:
         except Exception as e:
             db.rollback()
             return False, str(e)
+        finally:
+            db.close()
+
+
+    # ---------------- 云存档：本地条目 ----------------
+
+    @staticmethod
+    def get_all_save_games() -> List[SaveGame]:
+        db = SessionLocal()
+        try:
+            return db.query(SaveGame).order_by(SaveGame.id).all()
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_save_game(save_id: int) -> Optional[SaveGame]:
+        db = SessionLocal()
+        try:
+            return db.query(SaveGame).filter_by(id=save_id).first()
+        finally:
+            db.close()
+
+    @staticmethod
+    def create_save_game(name: str, local_path: str,
+                         linked_app_path: Optional[str] = None) -> Optional[SaveGame]:
+        db = SessionLocal()
+        try:
+            now = datetime.datetime.now()
+            obj = SaveGame(
+                name=name,
+                local_path=local_path,
+                linked_app_path=linked_app_path,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(obj)
+            db.commit()
+            db.refresh(obj)
+            return obj
+        except Exception:
+            db.rollback()
+            return None
+        finally:
+            db.close()
+
+    @staticmethod
+    def delete_save_game(save_id: int) -> bool:
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            db.delete(obj)
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
+    def update_save_game(save_id: int, name: Optional[str] = None,
+                         local_path: Optional[str] = None,
+                         linked_app_path: Optional[str] = None) -> bool:
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            if name is not None:
+                obj.name = name
+            if local_path is not None:
+                obj.local_path = local_path
+            if linked_app_path is not None:
+                obj.linked_app_path = linked_app_path
+            obj.updated_at = datetime.datetime.now()
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
+    def set_save_game_server_id(save_id: int, server_id: int) -> bool:
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            obj.server_id = server_id
+            obj.updated_at = datetime.datetime.now()
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
+    def clear_save_game_server_id(save_id: int) -> bool:
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            obj.server_id = None
+            obj.last_synced_version = None
+            obj.last_synced_at = None
+            obj.local_fingerprint = None
+            obj.updated_at = datetime.datetime.now()
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
+    def mark_save_game_synced(save_id: int, version: int, fingerprint: Optional[str]) -> bool:
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            obj.last_synced_version = version
+            obj.last_synced_at = datetime.datetime.now()
+            obj.local_fingerprint = fingerprint
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
         finally:
             db.close()
 

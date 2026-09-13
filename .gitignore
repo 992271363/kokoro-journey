@@ -255,5 +255,8 @@ uninstall_state.json
 .opencode/
 installer_output/
 
+# 云存档服务端文件存储
+backend/saves/
+
 # 构建时生成的版本信息（构建脚本编译后删除）
 /client/_build_info.py

@@ -97,3 +97,41 @@ class RecentActivityItem(CamelAliasModel):
     session_end_time: Optional[datetime] = None
     total_lifetime_seconds: int
     total_focus_seconds: int
+
+
+# ─── 云存档 ───
+
+class SaveFileItem(CamelAliasModel):
+    path: str
+    size: int
+    sha256: str
+    mtime_ns: Optional[int] = None
+
+
+class SaveVersionCreate(CamelAliasModel):
+    manifest: List[SaveFileItem]
+    total_size: int
+
+
+class SaveGameCreate(CamelAliasModel):
+    name: str
+
+
+class SaveGameRename(CamelAliasModel):
+    name: str
+
+
+class SaveGameView(CamelAliasModel):
+    id: int
+    name: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    latest_version: Optional[int] = None
+    latest_total_size: Optional[int] = None
+    latest_file_count: Optional[int] = None
+    latest_created_at: Optional[datetime] = None
+
+
+class SaveDeviceInfo(CamelAliasModel):
+    active_device_id: Optional[str] = None
+    previous_device_id: Optional[str] = None

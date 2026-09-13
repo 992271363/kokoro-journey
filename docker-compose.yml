@@ -42,6 +42,7 @@ services:
       volumes:
         - ./backend/api:/app
         - ./logs/backend:/app/logs
+        - ./backend/saves:/app/saves
       depends_on:
         database:
           condition: service_healthy

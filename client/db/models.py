@@ -353,3 +353,26 @@ class AppColorTag(Base):
 
     def __repr__(self):
         return f"<AppColorTag(app_id={self.application_id}, color='{self.color}')>"
+
+
+class SaveGame(Base):
+    """云存档：本地条目（名称 + 本地目录 + 可选关联应用 + 同步状态）。"""
+
+    __tablename__ = "save_games"
+
+    id = Column(Integer, primary_key=True)
+
+    server_id = Column(Integer, nullable=True, index=True)
+    name = Column(String, nullable=False)
+    local_path = Column(String, nullable=False)
+    linked_app_path = Column(String, nullable=True)
+
+    created_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+
+    last_synced_version = Column(Integer, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
+    local_fingerprint = Column(String, nullable=True)
+
+    def __repr__(self):
+        return f"<SaveGame(id={self.id}, name='{self.name}', server_id={self.server_id})>"

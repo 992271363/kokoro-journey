@@ -110,3 +110,83 @@ class ServerAppDailyUsage(Base):
     focus_seconds = Column(BigInteger, nullable=False, default=0)
 
     application = relationship("ServerWatchedApplication", back_populates="daily_usages")
+
+
+# ============================================================
+# 云存档
+# ============================================================
+
+# 云存档游戏（用户自建：名称 + 由服务端生成的 id）
+class ServerSaveGame(Base):
+    __tablename__ = 'server_save_games'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uix_server_save_game_user_name'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+
+    created_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+
+    versions = relationship(
+        "ServerSaveVersion",
+        back_populates="game",
+        cascade="all, delete-orphan",
+    )
+
+
+# 云存档版本（整目录完整快照）
+class ServerSaveVersion(Base):
+    __tablename__ = 'server_save_versions'
+    __table_args__ = (
+        UniqueConstraint('game_id', 'version_number',
+                         name='uix_server_save_version_game_number'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    game_id = Column(Integer, ForeignKey('server_save_games.id'), nullable=False, index=True)
+    version_number = Column(Integer, nullable=False)
+
+    status = Column(String(16), nullable=False, default='pending')  # pending | committed
+    total_size = Column(BigInteger, nullable=False, default=0)
+    file_count = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, nullable=True)
+
+    game = relationship("ServerSaveGame", back_populates="versions")
+    files = relationship(
+        "ServerSaveFile",
+        back_populates="version",
+        cascade="all, delete-orphan",
+    )
+
+
+# 云存档文件清单（仅一个 sha256 字段，P1 不建索引/不做去重）
+class ServerSaveFile(Base):
+    __tablename__ = 'server_save_files'
+    __table_args__ = (
+        UniqueConstraint('version_id', 'relative_path',
+                         name='uix_server_save_file_version_path'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    version_id = Column(Integer, ForeignKey('server_save_versions.id'), nullable=False, index=True)
+
+    relative_path = Column(String(1024), nullable=False)
+    size = Column(BigInteger, nullable=False, default=0)
+    sha256 = Column(String(64), nullable=False)
+    mtime_ns = Column(BigInteger, nullable=True)
+
+    version = relationship("ServerSaveVersion", back_populates="files")
+
+
+# 云同步活动设备（每个用户仅一个；用于“新设备接管云同步”）
+class ServerCloudSession(Base):
+    __tablename__ = 'server_cloud_sessions'
+
+    user_id = Column(Integer, ForeignKey('users.id'), primary_key=True)
+    active_device_id = Column(String(64), nullable=False)
+    updated_at = Column(DateTime, nullable=True)
+
