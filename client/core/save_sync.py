@@ -368,7 +368,7 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
                 try:
                     for m in batch:
                         handles.append((m, open(safe_join_local(local_dir, m["path"]), "rb")))
-                    files = [("file", (os.path.basename(m["path"]), fh)) for m, fh in handles]
+                    files = [("files", (os.path.basename(m["path"]), fh)) for m, fh in handles]
                     return get_session().post(f"{base}/files-batch",
                                               data={"items": json.dumps(items, ensure_ascii=False)},
                                               files=files, headers=_headers(token),

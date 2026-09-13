@@ -261,6 +261,7 @@ class _BatchFake:
     def __init__(self):
         self.batches = 0
         self.single = 0
+        self.batch_field_names = []
 
     def post(self, url, **kw):
         if url.endswith("/versions"):
@@ -268,6 +269,7 @@ class _BatchFake:
                                "uploadPaths": ["b.sav", "sub/a.sav"]})
         if url.endswith("/files-batch"):
             self.batches += 1
+            self.batch_field_names = [f[0] for f in (kw.get("files") or [])]
             return _Resp(201, {"ok": True, "uploaded": []})
         if url.endswith("/files"):
             self.single += 1
@@ -287,6 +289,7 @@ bf = _BatchFake()
 ss.get_session = lambda: bf
 ok_b, _res_b = ss.upload_game("tok", d, "G", server_id=1)
 check("批量: 多文件合并进 1 次请求", ok_b and bf.batches == 1 and bf.single == 0)
+check("批量字段名为 files", bf.batch_field_names == ["files", "files"])
 
 
 class _NoBatchFake(_BatchFake):

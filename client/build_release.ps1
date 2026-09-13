@@ -4,6 +4,7 @@
 param(
     [string]$Python = "E:\program\ANACONDA\envs\bishe\python.exe",
     [string]$OutputRoot = "E:\kokoro计时器历史版本",
+    [string]$Iscc = "D:\Program Files\Inno Setup 7\ISCC.exe",
     [switch]$SkipBuild
 )
 
@@ -93,10 +94,30 @@ New-Item -ItemType Directory -Force $DistDir | Out-Null
 Copy-Item (Join-Path $Stage "main.dist\*") $DistDir -Recurse -Force
 Copy-Item (Join-Path $Stage "log_console.dist\log-console.exe") $DistDir -Force
 
+# ---- 生成客户端 .env：只取根 .env 的 BASE_URL ----
+# 根 .env 含 SECRET_KEY/DB_* 等密钥，严禁整包复制；这里只写一行 BASE_URL。
+$RootEnv = Join-Path $ProjectRoot ".env"
+$BaseUrl = $null
+if (Test-Path -LiteralPath $RootEnv) {
+    $line = Get-Content -LiteralPath $RootEnv -Encoding UTF8 |
+            Where-Object { $_ -match '^\s*BASE_URL\s*=' } | Select-Object -First 1
+    if ($line) { $BaseUrl = $line.Substring($line.IndexOf('=') + 1).Trim().Trim('"') }
+}
+if ($BaseUrl) {
+    Set-Content -LiteralPath (Join-Path $DistDir ".env") -Value "BASE_URL = $BaseUrl" -Encoding ASCII
+    Write-Host "已写入客户端 .env: BASE_URL = $BaseUrl" -ForegroundColor Green
+} else {
+    Write-Warning "未从根 .env 解析到 BASE_URL；客户端将回落到默认 http://127.0.0.1（分发不可用）"
+}
+
 # 同步一份到 client\dist，供 installer/KokoroJourney.iss (SourceDir=..\client\dist) 使用
 Remove-Item -LiteralPath $ClientDist -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $ClientDist | Out-Null
 Copy-Item (Join-Path $DistDir "*") $ClientDist -Recurse -Force
+# 显式补一次 .env（避免个别环境下通配符漏掉点文件）
+if (Test-Path -LiteralPath (Join-Path $DistDir ".env")) {
+    Copy-Item -LiteralPath (Join-Path $DistDir ".env") $ClientDist -Force
+}
 
 Write-Host "打包完成: $DistDir" -ForegroundColor Green
 Write-Host "  kokoro-journey.exe  主程序（无黑窗，开机自启指向它）"
@@ -114,6 +135,8 @@ if (Test-Path -LiteralPath $InstallerPath) {
     Write-Host "旧安装包已改名: $InstallerName.old$n" -ForegroundColor Yellow
 }
 
+$IssPath = Join-Path $ProjectRoot "installer\KokoroJourney.iss"
 Write-Host ""
 Write-Host "编译安装包（手动执行，脚本不会自动调用 ISCC）:" -ForegroundColor Yellow
-Write-Host ("  ISCC.exe /DMyAppVersion=""{0}"" KokoroJourney.iss" -f $BuildVersion)
+Write-Host ("  ""{0}"" /DMyAppVersion=""{1}"" /DMyFileVersion=""{2}"" ""{3}""" -f $Iscc, $BuildVersion, $FileVersion, $IssPath)
+Write-Host "  （Inno 的相对路径按 .iss 所在目录解析，可在任意 cwd 运行；ISCC 路径不同请用 -Iscc 指定）"
