@@ -553,6 +553,56 @@ class AppRepository:
         finally:
             db.close()
 
+    @staticmethod
+    def create_bound_save_game(name: str, local_path: str, server_id: int,
+                               version: Optional[int], fingerprint: Optional[str]) -> Optional[SaveGame]:
+        """创建已绑定云端游戏的本地条目（linked_app_path 留空，单事务）。"""
+        db = SessionLocal()
+        try:
+            now = datetime.datetime.now()
+            obj = SaveGame(
+                name=name,
+                local_path=local_path,
+                linked_app_path=None,
+                server_id=server_id,
+                last_synced_version=version,
+                last_synced_at=now,
+                local_fingerprint=fingerprint,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(obj)
+            db.commit()
+            db.refresh(obj)
+            return obj
+        except Exception:
+            db.rollback()
+            return None
+        finally:
+            db.close()
+
+    @staticmethod
+    def bind_save_game_to_server(save_id: int, server_id: int,
+                                 version: Optional[int], fingerprint: Optional[str]) -> bool:
+        """把已有本地条目绑定到云端游戏并写入同步状态（不改本地路径与文件）。"""
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            obj.server_id = server_id
+            obj.last_synced_version = version
+            obj.last_synced_at = datetime.datetime.now()
+            obj.local_fingerprint = fingerprint
+            obj.updated_at = datetime.datetime.now()
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
 
 def _refresh_failed_queues(old_path: str, new_path: str) -> None:
     try:

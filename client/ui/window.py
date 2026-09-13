@@ -496,6 +496,7 @@ class Mywindow(QMainWindow):
         self._refresh_table()
         self.monitor_controller.start(AppRepository.get_watched_apps_info())
         self.sync_controller.start()
+        QTimer.singleShot(0, self._try_auto_login)
 
         # 读取监控开关状态
         if not self._settings.get("monitorEnabled", True):
@@ -1265,20 +1266,50 @@ class Mywindow(QMainWindow):
         result = dialog.exec()
         print(f"[MainWindow] 对话框返回值: {result}, QDialog.Accepted={QDialog.Accepted}")
         if result == QDialog.Accepted:
-            print(f"[MainWindow] 登录成功, token={dialog.token[:10] if dialog.token else 'None'}..., username={dialog.username}")
-            self.token = dialog.token
-            self.username = dialog.username
-            self.user_show.setText(self.username)
-            self.user_show.setProperty("logged", True)
-            self.user_show.style().unpolish(self.user_show)
-            self.user_show.style().polish(self.user_show)
-            self.login_action.setVisible(False)
-            self.logout_action.setVisible(True)
-            print("[MainWindow] UI 已更新: 显示用户名, 隐藏登录按钮, 显示退出按钮")
-            self.run_immediate_sync()
-            self._maybe_cloud_sync_on_login()
+            print(f"[MainWindow] 登录成功, username={dialog.username}")
+            self._apply_login_success(dialog.token, dialog.username)
         else:
             print(f"[MainWindow] 登录对话框未返回 Accepted, 返回值: {result}")
+
+    def _apply_login_success(self, token, username):
+        self.token = token
+        self.username = username
+        self.user_show.setText(username)
+        self.user_show.setProperty("logged", True)
+        self.user_show.style().unpolish(self.user_show)
+        self.user_show.style().polish(self.user_show)
+        self.login_action.setVisible(False)
+        self.logout_action.setVisible(True)
+        print("[MainWindow] UI 已更新: 显示用户名, 隐藏登录按钮, 显示退出按钮")
+        self.run_immediate_sync()
+        self._maybe_cloud_sync_on_login()
+
+    def _try_auto_login(self):
+        if self.token:
+            return
+        from util.credentials import get_auto_login_credentials
+        creds = get_auto_login_credentials()
+        if not creds:
+            return
+        username, password = creds
+        self._autologin_username = username
+        from ui.login import LoginWorker
+        self._autologin_thread = QThread(self)
+        self._autologin_worker = LoginWorker(username, password)
+        self._autologin_worker.moveToThread(self._autologin_thread)
+        self._autologin_thread.started.connect(self._autologin_worker.run)
+        self._autologin_worker.finished.connect(self._on_auto_login_result)
+        self._autologin_worker.finished.connect(self._autologin_thread.quit)
+        self._autologin_thread.finished.connect(self._autologin_worker.deleteLater)
+        print(f"[MainWindow] 尝试自动登录: {username}")
+        self._autologin_thread.start()
+
+    def _on_auto_login_result(self, status, token):
+        from core.api import LoginStatus
+        if status == LoginStatus.SUCCESS and token:
+            self._apply_login_success(token, getattr(self, "_autologin_username", ""))
+        else:
+            print("[MainWindow] 自动登录失败，需手动登录")
 
     def _logout(self):
         print("[MainWindow] 用户点击退出登录")

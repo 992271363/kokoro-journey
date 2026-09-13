@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from db.repository import AppRepository
 from core import save_sync as ss
+from core import save_bind as sb
 
 STATUS_TEXT = {
     ss.STATUS_IN_SYNC: "与云端一致",
@@ -24,6 +25,8 @@ STATUS_TEXT = {
     ss.STATUS_CLOUD: "云端有新版本",
     ss.STATUS_CONFLICT: "冲突",
     ss.STATUS_NOT_SYNCED: "尚未上传",
+    sb.STATE_DELETED: "云端已删除",
+    sb.STATE_NO_VERSION: "云端暂无版本",
 }
 
 
@@ -156,6 +159,75 @@ class CloudVersionsDialog(QDialog):
         self._on_download(v)
 
 
+class CloudGamesDialog(QDialog):
+    """浏览账号下的云端游戏，选择其一返回给调用方下载。"""
+
+    def __init__(self, parent, cloud_map: dict, entries):
+        super().__init__(parent)
+        self.setWindowTitle("从云端获取")
+        self.resize(560, 380)
+        self.selected = None
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("当前账号下的云端游戏："))
+
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["名称", "最新版本", "大小", "本地状态"])
+        h = self.table.horizontalHeader()
+        h.setSectionResizeMode(0, QHeaderView.Stretch)
+        for c in (1, 2, 3):
+            h.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        layout.addWidget(self.table)
+
+        self.games = list(cloud_map.values())
+        for g in self.games:
+            binding = sb.classify_cloud_binding(entries, g)
+            latest = g.get("latestVersion")
+            if binding == sb.BOUND_SAME:
+                local_state = "已关联"
+            elif binding == sb.NAME_UNBOUND:
+                local_state = "本地有同名条目"
+            elif binding == sb.NAME_OTHER:
+                local_state = "同名冲突"
+            else:
+                local_state = "未关联"
+            if not latest:
+                local_state += " / 暂无版本"
+            r = self.table.rowCount()
+            self.table.insertRow(r)
+            self.table.setItem(r, 0, QTableWidgetItem(g.get("name") or ""))
+            self.table.setItem(r, 1, QTableWidgetItem(f"v{latest}" if latest else "—"))
+            self.table.setItem(r, 2, QTableWidgetItem(_fmt_size(g.get("latestTotalSize", 0))))
+            self.table.setItem(r, 3, QTableWidgetItem(local_state))
+
+        row = QHBoxLayout()
+        row.addStretch()
+        self.btn_download = QPushButton("下载最新版本")
+        self.btn_download.setEnabled(False)
+        self.btn_download.clicked.connect(self._download)
+        self.table.itemSelectionChanged.connect(self._update)
+        close_btn = QPushButton("关闭")
+        close_btn.setProperty("secondary", True)
+        close_btn.clicked.connect(self.reject)
+        row.addWidget(self.btn_download)
+        row.addWidget(close_btn)
+        layout.addLayout(row)
+
+    def _update(self):
+        rows = self.table.selectionModel().selectedRows()
+        self.btn_download.setEnabled(bool(rows))
+
+    def _download(self):
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        self.selected = self.games[rows[0].row()]
+        self.accept()
+
+
 class PersonalCenter(QDialog):
     def __init__(self, parent, token: str, username: str):
         super().__init__(parent)
@@ -188,23 +260,28 @@ class PersonalCenter(QDialog):
         layout.addWidget(self.status_label)
 
         row = QHBoxLayout()
+        self.btn_from_cloud = QPushButton("从云端获取…")
         self.btn_add = QPushButton("新增")
         self.btn_upload = QPushButton("上传本地")
         self.btn_download = QPushButton("下载云端")
         self.btn_view = QPushButton("查看云端")
+        self.btn_unbind = QPushButton("解除绑定")
         self.btn_del_remote = QPushButton("删除云端")
         self.btn_del_local = QPushButton("删除本地")
-        for b in (self.btn_add,):
-            row.addWidget(b)
+        row.addWidget(self.btn_from_cloud)
+        row.addWidget(self.btn_add)
         row.addStretch()
-        for b in (self.btn_upload, self.btn_download, self.btn_view, self.btn_del_remote, self.btn_del_local):
+        for b in (self.btn_upload, self.btn_download, self.btn_view,
+                  self.btn_unbind, self.btn_del_remote, self.btn_del_local):
             row.addWidget(b)
         layout.addLayout(row)
 
+        self.btn_from_cloud.clicked.connect(self._open_cloud_games)
         self.btn_add.clicked.connect(self._add)
         self.btn_upload.clicked.connect(self._upload)
         self.btn_download.clicked.connect(self._download_latest)
         self.btn_view.clicked.connect(self._view_cloud)
+        self.btn_unbind.clicked.connect(self._unbind)
         self.btn_del_remote.clicked.connect(self._delete_remote)
         self.btn_del_local.clicked.connect(self._delete_local)
 
@@ -232,6 +309,11 @@ class PersonalCenter(QDialog):
         self.status_label.setText("")
 
     def _entry_status(self, entry):
+        state = sb.cloud_game_state(entry, self._cloud)
+        if state == sb.STATE_DELETED and entry.server_id is not None:
+            return sb.STATE_DELETED, None
+        if state == sb.STATE_NO_VERSION:
+            return sb.STATE_NO_VERSION, None
         cloud = self._cloud.get(entry.server_id) if entry.server_id else None
         try:
             if entry.local_path and os.path.isdir(entry.local_path):
@@ -277,8 +359,101 @@ class PersonalCenter(QDialog):
         self.btn_view.setEnabled(has and entry.server_id is not None)
         self.btn_del_remote.setEnabled(has and entry.server_id is not None)
         self.btn_del_local.setEnabled(has)
+        deleted = has and entry.server_id is not None and entry.server_id not in self._cloud
+        self.btn_unbind.setEnabled(deleted)
 
     # ---------- 操作 ----------
+
+    def _open_cloud_games(self):
+        entries = AppRepository.get_all_save_games()
+        dlg = CloudGamesDialog(self, self._cloud, entries)
+        if dlg.exec() != QDialog.Accepted or not dlg.selected:
+            return
+        cloud_game = dlg.selected
+        if not cloud_game.get("latestVersion"):
+            QMessageBox.information(self, "提示", "云端暂无版本。")
+            return
+
+        binding = sb.classify_cloud_binding(entries, cloud_game)
+        if binding == sb.NAME_OTHER:
+            QMessageBox.warning(self, "冲突", "本地已有同名条目且已绑定其它云端游戏，请手动处理。")
+            return
+
+        bind_entry_id = None
+        if binding == sb.BOUND_SAME:
+            bound = next((e for e in entries if e.server_id == cloud_game["id"]), None)
+            if bound is None:
+                return
+            local_path = bound.local_path
+        elif binding == sb.NAME_UNBOUND:
+            existing = next((e for e in entries
+                             if e.name == cloud_game["name"] and e.server_id is None), None)
+            if existing is None:
+                return
+            choice = self._ask_name_conflict(cloud_game["name"])
+            if choice == "cancel":
+                return
+            if choice == "bind":
+                bind_entry_id = existing.id
+                local_path = existing.local_path
+            else:
+                local_path = self._choose_dir()
+                if not local_path:
+                    return
+        else:
+            local_path = self._choose_dir()
+            if not local_path:
+                return
+
+        if os.path.isdir(local_path) and os.listdir(local_path):
+            if QMessageBox.question(
+                self, "确认覆盖",
+                f"目录已有内容，将被云端版本覆盖（覆盖前会备份）：\n{local_path}\n是否继续？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+
+        self._busy(True, "正在下载...")
+        self._run_worker(sb.download_cloud_game_to, self._on_cloud_bind_done,
+                         self._token, cloud_game, local_path, entries, bind_entry_id)
+
+    def _ask_name_conflict(self, name):
+        box = QMessageBox(self)
+        box.setWindowTitle("同名条目")
+        box.setText(f"本地已存在同名条目「{name}」，请选择处理方式：")
+        b_bind = box.addButton("绑定已有条目", QMessageBox.AcceptRole)
+        b_new = box.addButton("新建本地条目", QMessageBox.AcceptRole)
+        b_cancel = box.addButton("取消", QMessageBox.RejectRole)
+        box.setDefaultButton(b_cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_bind:
+            return "bind"
+        if clicked is b_new:
+            return "new"
+        return "cancel"
+
+    def _choose_dir(self):
+        return QFileDialog.getExistingDirectory(self, "选择本地存档目录", "")
+
+    def _on_cloud_bind_done(self, ok, res):
+        self._busy(False)
+        if not ok:
+            QMessageBox.warning(self, "下载失败", ss_http_msg(res))
+            return
+        QMessageBox.information(self, "完成", f"已下载并绑定，版本 v{res['version']}。")
+        self.refresh()
+
+    def _unbind(self):
+        entry = self._selected_entry()
+        if entry is None or entry.server_id is None:
+            return
+        if QMessageBox.question(
+            self, "解除绑定",
+            "仅解除与云端游戏的关联，不删除本地条目和存档文件。\n是否继续？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        AppRepository.clear_save_game_server_id(entry.id)
+        self.refresh()
 
     def _add(self):
         dlg = AddSaveGameDialog(self)
@@ -413,8 +588,8 @@ class PersonalCenter(QDialog):
     # ---------- 后台线程 ----------
 
     def _busy(self, busy: bool, text: str = ""):
-        for b in (self.btn_add, self.btn_upload, self.btn_download, self.btn_view,
-                  self.btn_del_remote, self.btn_del_local):
+        for b in (self.btn_from_cloud, self.btn_add, self.btn_upload, self.btn_download,
+                  self.btn_view, self.btn_unbind, self.btn_del_remote, self.btn_del_local):
             b.setEnabled(not busy)
         if text:
             self.status_label.setText(text)
