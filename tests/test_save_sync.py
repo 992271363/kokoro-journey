@@ -90,5 +90,55 @@ check("备份存在且保留旧文件", backup and os.path.exists(os.path.join(b
 check("mtime 已恢复",
       abs(os.stat(os.path.join(target, "new.txt")).st_mtime_ns - _mtime) <= 1000)
 
+# --- 上传重试 + 友好报错（离线 mock 网络） ---
+class _Resp:
+    def __init__(self, status_code, payload=None):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+class _FakeSession:
+    def __init__(self, fail_times):
+        self.fail_times = fail_times
+        self.file_calls = 0
+
+    def post(self, url, **kwargs):
+        if url.endswith("/files"):
+            self.file_calls += 1
+            if self.file_calls <= self.fail_times:
+                raise ss.requests.exceptions.ConnectionError("boom")
+            return _Resp(201, {"ok": True})
+        if url.endswith("/versions"):
+            return _Resp(201, {"versionId": 1, "versionNumber": 1})
+        if url.endswith("/commit"):
+            return _Resp(200, {"ok": True})
+        return _Resp(200, {})
+
+    def delete(self, url, **kwargs):
+        return _Resp(200, {"ok": True})
+
+
+ss.RETRY_BACKOFF = (0, 0, 0)  # 测试不等待退避
+
+updir = os.path.join(base, "upload_game")
+os.makedirs(updir)
+with open(os.path.join(updir, "a.sav"), "wb") as f:
+    f.write(b"data")
+
+fake = _FakeSession(fail_times=2)
+ss.get_session = lambda: fake
+ok_up, res_up = ss.upload_game("tok", updir, "G", server_id=1)
+check("上传: 两次中断后重试成功", ok_up and res_up.get("version") == 1)
+check("上传: 文件请求共 3 次", fake.file_calls == 3)
+
+fake2 = _FakeSession(fail_times=99)
+ss.get_session = lambda: fake2
+ok_up2, res_up2 = ss.upload_game("tok", updir, "G", server_id=1)
+check("上传: 持续失败返回失败", not ok_up2)
+check("上传: 失败信息为友好中文", isinstance(res_up2, str) and "网络" in res_up2)
+
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

@@ -10,12 +10,14 @@ import hashlib
 import json
 import os
 import shutil
+import time
 from typing import List, Optional, Tuple
 
 import requests
 from PySide6.QtCore import QObject, Signal, Slot
 
 from core.api import API_URL
+from core.http_client import get_session
 from util.device import get_device_id
 
 TIMEOUT = 60
@@ -23,6 +25,14 @@ UPLOAD_TIMEOUT = 600
 
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_FILE_BYTES = 90 * 1024 * 1024  # 客户端单文件硬拦截
+
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF = (1, 3, 9)  # 秒
+_NETWORK_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+)
 
 TAKEN_OVER = "TAKEN_OVER"
 
@@ -131,13 +141,39 @@ def _detail(r: requests.Response) -> str:
         return f"HTTP {r.status_code}"
 
 
+def _friendly_error(exc: Exception) -> str:
+    """把底层网络异常翻译成用户能看懂的中文提示。"""
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "请求超时，请检查网络后重试。"
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "网络连接被中断（可能超时、文件过大或代理不稳定），请重试。"
+    if isinstance(exc, requests.exceptions.ChunkedEncodingError):
+        return "传输过程中断，请重试。"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "网络连接失败，请检查网络或代理设置后重试。"
+    return f"网络错误：{exc}"
+
+
+def _send(make_request):
+    """带退避重试执行网络请求；可重试错误重试，其余立即抛出。"""
+    last = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            return make_request()
+        except _NETWORK_ERRORS as e:
+            last = e
+            if attempt < RETRY_ATTEMPTS - 1:
+                time.sleep(RETRY_BACKOFF[attempt])
+    raise last
+
+
 def _post_json(token: str, path: str, payload: Optional[dict] = None,
                timeout: int = TIMEOUT) -> Tuple[bool, object]:
     try:
-        r = requests.post(f"{API_URL}/{path.lstrip('/')}", json=payload,
-                          headers=_headers(token), timeout=timeout)
+        r = _send(lambda: get_session().post(f"{API_URL}/{path.lstrip('/')}", json=payload,
+                                             headers=_headers(token), timeout=timeout))
     except requests.exceptions.RequestException as e:
-        return False, str(e)
+        return False, _friendly_error(e)
     if r.status_code == 409:
         return False, TAKEN_OVER
     if r.status_code >= 400:
@@ -148,10 +184,10 @@ def _post_json(token: str, path: str, payload: Optional[dict] = None,
 def _get_json(token: str, path: str, params: Optional[dict] = None,
               timeout: int = TIMEOUT) -> Tuple[bool, object]:
     try:
-        r = requests.get(f"{API_URL}/{path.lstrip('/')}", params=params,
-                         headers=_headers(token), timeout=timeout)
+        r = _send(lambda: get_session().get(f"{API_URL}/{path.lstrip('/')}", params=params,
+                                            headers=_headers(token), timeout=timeout))
     except requests.exceptions.RequestException as e:
-        return False, str(e)
+        return False, _friendly_error(e)
     if r.status_code == 409:
         return False, TAKEN_OVER
     if r.status_code >= 400:
@@ -161,9 +197,10 @@ def _get_json(token: str, path: str, params: Optional[dict] = None,
 
 def _delete(token: str, path: str) -> Tuple[bool, object]:
     try:
-        r = requests.delete(f"{API_URL}/{path.lstrip('/')}", headers=_headers(token), timeout=TIMEOUT)
+        r = _send(lambda: get_session().delete(f"{API_URL}/{path.lstrip('/')}",
+                                               headers=_headers(token), timeout=TIMEOUT))
     except requests.exceptions.RequestException as e:
-        return False, str(e)
+        return False, _friendly_error(e)
     if r.status_code == 409:
         return False, TAKEN_OVER
     if r.status_code >= 400:
@@ -234,14 +271,17 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
     for i, m in enumerate(manifest, 1):
         full = safe_join_local(local_dir, m["path"])
         url = f"{API_URL}/saves/games/{server_id}/versions/{vid}/files"
-        try:
+        def _do_upload():
             with open(full, "rb") as fh:
-                r = requests.post(url, data={"path": m["path"], "sha256": m["sha256"]},
-                                  files={"file": (os.path.basename(m["path"]), fh)},
-                                  headers=_headers(token), timeout=UPLOAD_TIMEOUT)
+                return get_session().post(url, data={"path": m["path"], "sha256": m["sha256"]},
+                                          files={"file": (os.path.basename(m["path"]), fh)},
+                                          headers=_headers(token), timeout=UPLOAD_TIMEOUT)
+
+        try:
+            r = _send(_do_upload)
         except requests.exceptions.RequestException as e:
             delete_version(token, server_id, vid)
-            return False, str(e)
+            return False, _friendly_error(e)
         if r.status_code == 409:
             delete_version(token, server_id, vid)
             return False, TAKEN_OVER
@@ -283,11 +323,11 @@ def prepare_download(token: str, server_id: int, version_id: int, target_dir: st
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         url = f"{API_URL}/saves/games/{server_id}/versions/{version_id}/files/download"
         try:
-            r = requests.get(url, params={"path": rel}, headers=_headers(token),
-                             stream=True, timeout=UPLOAD_TIMEOUT)
+            r = _send(lambda: get_session().get(url, params={"path": rel}, headers=_headers(token),
+                                                stream=True, timeout=UPLOAD_TIMEOUT))
         except requests.exceptions.RequestException as e:
             discard_download(tmp)
-            return False, str(e)
+            return False, _friendly_error(e)
         if r.status_code == 409:
             discard_download(tmp)
             return False, TAKEN_OVER

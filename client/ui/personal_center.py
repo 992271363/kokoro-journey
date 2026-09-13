@@ -412,6 +412,7 @@ class PersonalCenter(QDialog):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
 
+        self._pending_bind = (cloud_game, local_path, entries, bind_entry_id)
         self._busy(True, "正在下载...")
         self._run_worker(sb.download_cloud_game_to, self._on_cloud_bind_done,
                          self._token, cloud_game, local_path, entries, bind_entry_id)
@@ -438,6 +439,13 @@ class PersonalCenter(QDialog):
     def _on_cloud_bind_done(self, ok, res):
         self._busy(False)
         if not ok:
+            if (res == ss.TAKEN_OVER and getattr(self, "_pending_bind", None)
+                    and self._confirm_take_over()):
+                cloud_game, local_path, entries, bind_entry_id = self._pending_bind
+                self._busy(True, "正在下载...")
+                self._run_worker(sb.download_cloud_game_to, self._on_cloud_bind_done,
+                                 self._token, cloud_game, local_path, entries, bind_entry_id)
+                return
             QMessageBox.warning(self, "下载失败", ss_http_msg(res))
             return
         QMessageBox.information(self, "完成", f"已下载并绑定，版本 v{res['version']}。")
@@ -483,9 +491,27 @@ class PersonalCenter(QDialog):
             ss.upload_game, self._on_upload_done,
             self._token, entry.local_path, entry.name, entry.server_id)
 
+    def _confirm_take_over(self) -> bool:
+        """云端被其他设备占用时，询问是否在本机接管云同步。接管成功返回 True。"""
+        reply = QMessageBox.question(
+            self, "云同步被占用",
+            "云端云同步当前由其他设备使用。\n是否在本机接管云同步并继续？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return False
+        ok, res = ss.claim_device(self._token)
+        if not ok:
+            QMessageBox.warning(self, "接管失败", ss_http_msg(res))
+            return False
+        return True
+
     def _on_upload_done(self, ok, res):
         self._busy(False)
         if not ok:
+            entry = getattr(self, "_pending_upload_entry", None)
+            if res == ss.TAKEN_OVER and entry is not None and self._confirm_take_over():
+                self._upload(entry)
+                return
             QMessageBox.warning(self, "上传失败", ss_http_msg(res))
             return
         entry = getattr(self, "_pending_upload_entry", None)
@@ -527,6 +553,10 @@ class PersonalCenter(QDialog):
     def _on_download_done(self, ok, res):
         self._busy(False)
         if not ok:
+            if (res == ss.TAKEN_OVER and getattr(self, "_pending_download", None)
+                    and self._confirm_take_over()):
+                self._download_version(*self._pending_download)
+                return
             QMessageBox.warning(self, "下载失败", ss_http_msg(res))
             return
         tmp = res

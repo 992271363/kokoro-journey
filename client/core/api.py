@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
 from util.path import _settings_dir
+from core.http_client import get_session
 
 if getattr(sys, "frozen", False):
     _user_env = Path(_settings_dir()) / ".env"
@@ -34,7 +35,7 @@ def api_login(username: str, password: str) -> Tuple[LoginStatus, Optional[str]]
     login_url = f"{API_URL}/auth/token"
 
     try:
-        response = requests.post(
+        response = get_session().post(
             login_url,
             data={"username": username, "password": password},
             timeout=10
@@ -76,7 +77,7 @@ def send_data_to_api(data_list: List[Dict[str, Any]], endpoint: str, token: str,
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
-        response = requests.post(target_url, json=data_list, headers=headers, timeout=timeout)
+        response = get_session().post(target_url, json=data_list, headers=headers, timeout=timeout)
         response.raise_for_status()
         print(f"成功发送 {len(data_list)} 条数据到 {endpoint}")
         return True

@@ -405,6 +405,12 @@ class SettingsDialog(QDialog):
         self.check_cloud_auto_upload.setChecked(bool(Settings().get("cloudAutoUploadOnClose", False)))
         cloud_form.addRow(self.check_cloud_auto_upload)
 
+        self.check_cloud_use_proxy = QCheckBox("使用系统代理")
+        self.check_cloud_use_proxy.setToolTip(
+            "默认关闭（直连，上传更稳）。\n若需要经系统代理访问云端，可勾选此项。")
+        self.check_cloud_use_proxy.setChecked(bool(Settings().get("useSystemProxy", False)))
+        cloud_form.addRow(self.check_cloud_use_proxy)
+
         content_layout.addWidget(cloud_group)
 
         # --- 数据 ---
@@ -666,6 +672,7 @@ class SettingsDialog(QDialog):
         Settings().set("cloudSaveEnabled", self.check_cloud_enabled.isChecked())
         Settings().set("cloudSyncOnLogin", self.check_cloud_sync_login.isChecked())
         Settings().set("cloudAutoUploadOnClose", self.check_cloud_auto_upload.isChecked())
+        Settings().set("useSystemProxy", self.check_cloud_use_proxy.isChecked())
 
         if autostart.is_available():
             if self.check_autostart.isChecked():
@@ -725,6 +732,10 @@ class SettingsDialog(QDialog):
         self.check_idle_tip.setChecked(False)
         self.check_hide_on_pick.setChecked(True)
         self.check_show_tray.setChecked(True)
+        self.check_cloud_enabled.setChecked(True)
+        self.check_cloud_sync_login.setChecked(False)
+        self.check_cloud_auto_upload.setChecked(False)
+        self.check_cloud_use_proxy.setChecked(False)
         self.radio_system.setChecked(True)
         self.radio_fmt_english.setChecked(True)
 

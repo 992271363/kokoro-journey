@@ -3,7 +3,7 @@ import _common  # noqa: F401
 
 import sys
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 import core.save_sync as ss
 from db.repository import AppRepository
@@ -72,6 +72,34 @@ dlg3 = PersonalCenter(None, "token", "tester")
 check("状态 云端暂无版本", dlg3.table.item(0, 3).text() == "云端暂无版本")
 dlg3.close()
 AppRepository.delete_save_game(g3.id)
+
+# --- 409 被其他设备占用 -> 询问接管并重试上传（D1） ---
+claimed = []
+ss.claim_device = lambda t: (claimed.append(t) or (True, {"activeDeviceId": "d", "previousDeviceId": "x"}))
+ss.list_games = lambda t: (True, [])
+
+QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+QMessageBox.warning = staticmethod(lambda *a, **k: QMessageBox.Ok)
+QMessageBox.information = staticmethod(lambda *a, **k: QMessageBox.Ok)
+
+dlg4 = PersonalCenter(None, "token", "tester")
+retried = []
+dlg4._upload = lambda entry=None: retried.append(entry)
+
+claimed.clear()  # 构造时 refresh() 已 claim 过一次，这里只统计后续
+e_retry = AppRepository.create_save_game("RetryG", r"C:\r", None)
+dlg4._pending_upload_entry = e_retry
+dlg4._on_upload_done(False, ss.TAKEN_OVER)
+check("409 接管后重试上传", len(claimed) == 1 and retried == [e_retry])
+
+retried.clear()
+claimed.clear()
+QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
+dlg4._on_upload_done(False, ss.TAKEN_OVER)
+check("拒绝接管则不重试", not retried and not claimed)
+
+AppRepository.delete_save_game(e_retry.id)
+dlg4.close()
 
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)
