@@ -48,14 +48,10 @@ _rebuild_quiet_output()
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # Qt 应用入口类
 from PySide6.QtCore import QLockFile, Qt, QTranslator, QLocale, QLibraryInfo  # Qt 提供的跨平台文件锁工具
 
-from ui.window import Mywindow
-from db.database import create_db_and_tables, delete_database
-from util.config import Settings
-from ui.theme import apply_theme
-from util import autostart
+# 注意：以下依赖数据目录的模块（db / core / ui.window）必须等首次向导确定
+# 数据目录之后再导入，否则 db.database 会在导入期把引擎绑定到默认目录。
 from util.path import is_data_dir_configured
 from ui.wizard import FirstRunWizard
-from util.state import update_state
 
 
 # ============================================================
@@ -173,6 +169,24 @@ if __name__ == "__main__":
         print(f"用户选择的数据目录: {wizard.selected_path()}")
 
     # ========================================================
+    # 数据目录已在向导中最终确定，此时再导入依赖数据路径的模块，
+    # 避免引擎/队列目录在导入期被绑定到默认位置。
+    # ========================================================
+    from util.config import Settings
+    from util.state import update_state
+    from util import autostart
+    from util.path import get_data_dir, data_dir_source
+    from db.database import create_db_and_tables, delete_database, db_path
+    from ui.theme import apply_theme
+    from ui.window import Mywindow
+
+    _cur_dir = get_data_dir()
+    print(f"[DB] 数据目录: {_cur_dir}  (来源: {data_dir_source()})")
+    print(f"[DB] 数据库文件: {db_path}")
+    if os.path.normcase(_cur_dir) != os.path.normcase(os.path.dirname(db_path)):
+        print(f"[DB][警告] 配置目录与引擎目录不一致: 配置={_cur_dir} 引擎={os.path.dirname(db_path)}")
+
+    # ========================================================
     # 第三步补充：首次启动初始化用户 .env 配置
     # ========================================================
     from util.path import _settings_dir
@@ -194,7 +208,7 @@ if __name__ == "__main__":
     # ========================================================
     # 第四步：初始化数据库
     # ========================================================
-    print("正在初始化数据库...")
+    print(f"正在初始化数据库: {db_path}")
     try:
         create_db_and_tables()
     except Exception as e:
@@ -212,7 +226,9 @@ if __name__ == "__main__":
             create_db_and_tables()
         else:
             sys.exit(1)
-    print("数据库初始化完成。")
+    _db_exists = os.path.exists(db_path)
+    _db_size = os.path.getsize(db_path) if _db_exists else 0
+    print(f"[DB] 初始化完成: {db_path} (存在={_db_exists}, {_db_size} 字节)")
 
     # ========================================================
     # 第四步补充：从冷存储自动恢复死信会话到主队列

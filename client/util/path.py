@@ -64,6 +64,17 @@ def get_data_dir() -> str:
     return _default_appdata()
 
 
+def data_dir_source() -> str:
+    """返回当前数据目录的解析来源，便于启动日志排查。"""
+    if _from_cmdline():
+        return "--data-dir 命令行"
+    if _from_portable():
+        return "portable.txt"
+    if _from_settings_json():
+        return "settings.json"
+    return "默认 AppData"
+
+
 def is_data_dir_configured() -> bool:
     d = _from_settings_json() or _from_portable()
     if d is None:

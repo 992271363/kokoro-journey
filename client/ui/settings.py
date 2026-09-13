@@ -447,6 +447,13 @@ class SettingsDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(6)
+
+        self.btn_reset = QPushButton("恢复默认设置")
+        self.btn_reset.setFixedHeight(34)
+        self.btn_reset.setProperty("secondary", True)
+        self.btn_reset.clicked.connect(self._on_reset_defaults)
+        btn_layout.addWidget(self.btn_reset)
+
         btn_layout.addStretch()
 
         self.btn_ok = QPushButton("确认")
@@ -632,6 +639,44 @@ class SettingsDialog(QDialog):
 
     def _on_apply(self):
         self._save_settings()
+
+    def _on_reset_defaults(self):
+        """把设置页中的非数据项恢复为默认值（不动数据目录/位置/统计）。"""
+        reply = QMessageBox.question(
+            self,
+            "恢复默认设置",
+            "将把设置页中的所有选项恢复为默认值。\n"
+            "不会影响数据库、存储位置和运行统计。\n\n是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        self.combo_close_action.setCurrentIndex(0)
+        if self.check_autostart.isEnabled():
+            self.check_autostart.setChecked(False)
+        self.check_minimize_on_start.setChecked(False)
+        self.check_sync_enabled.setChecked(True)
+        self.spin_sync_interval.setValue(60)
+        self.check_idle_enabled.setChecked(True)
+        self.spin_idle_threshold.setValue(5)
+        self.check_idle_tip.setChecked(False)
+        self.check_hide_on_pick.setChecked(True)
+        self.check_show_tray.setChecked(True)
+        self.radio_system.setChecked(True)
+        self.radio_fmt_english.setChecked(True)
+
+        Settings().set("tableZoom", 100)
+        mw = self.parent()
+        if hasattr(mw, "table_manager"):
+            try:
+                mw.table_manager.apply_zoom(1.0)
+            except Exception:
+                pass
+
+        self._save_settings()
+        QMessageBox.information(self, "已恢复", "设置已恢复为默认值。")
 
     def _on_accept(self):
         self._save_settings()

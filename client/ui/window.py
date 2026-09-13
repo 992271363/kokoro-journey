@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
     QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup,
     QGraphicsDropShadowEffect, QInputDialog, QColorDialog, QMessageBox,
-    QWidgetAction
+    QWidgetAction, QStackedWidget
 )
 
 from db.repository import AppRepository
@@ -257,6 +257,7 @@ class Mywindow(QMainWindow):
         toolbar.addWidget(self._add_spacer(3))
 
         self.pushButton_procs = QPushButton("添加进程")
+        self.pushButton_procs.setToolTip("从本地选择一个程序添加到监控列表")
         self.pushButton_procs.setFixedHeight(48)
         toolbar.addWidget(self.pushButton_procs)
         toolbar.addWidget(self._add_spacer(3))
@@ -302,6 +303,7 @@ class Mywindow(QMainWindow):
         toolbar.addWidget(self._add_spacer(3))
 
         self.btn_stats = QPushButton("统计")
+        self.btn_stats.setToolTip("查看应用使用时长统计")
         self.btn_stats.setFixedHeight(48)
         toolbar.addWidget(self.btn_stats)
         toolbar.addWidget(self._add_spacer(3))
@@ -311,11 +313,14 @@ class Mywindow(QMainWindow):
         self.user_show.setAlignment(Qt.AlignCenter)
         self.user_show.setObjectName("user_show")
         self.user_show.setProperty("logged", False)
+        self.user_show.setToolTip("当前登录状态")
         toolbar.addWidget(self.user_show)
         toolbar.addWidget(self._add_spacer(3))
 
         self.login_action = toolbar.addAction("登录")
+        self.login_action.setToolTip("登录以同步数据到云端")
         self.logout_action = toolbar.addAction("退出")
+        self.logout_action.setToolTip("退出当前账号")
         self.logout_action.setVisible(False)
         toolbar.addWidget(self._add_spacer(3))
 
@@ -385,7 +390,36 @@ class Mywindow(QMainWindow):
         table_layout.setSpacing(0)
 
         self.tableWidget = QTableWidget()
-        table_layout.addWidget(self.tableWidget, stretch=1)
+
+        # 空状态页（无应用 / 筛选无结果）
+        self._empty_page = QWidget()
+        empty_layout = QVBoxLayout(self._empty_page)
+        empty_layout.setContentsMargins(0, 0, 0, 0)
+        empty_layout.setSpacing(12)
+        empty_layout.addStretch(1)
+        self._empty_icon = QLabel()
+        self._empty_icon.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(self._empty_icon)
+        self._empty_title = QLabel()
+        self._empty_title.setAlignment(Qt.AlignCenter)
+        self._empty_title.setProperty("role", "title")
+        empty_layout.addWidget(self._empty_title)
+        self._empty_hint = QLabel()
+        self._empty_hint.setAlignment(Qt.AlignCenter)
+        self._empty_hint.setWordWrap(True)
+        self._empty_hint.setProperty("role", "desc")
+        empty_layout.addWidget(self._empty_hint)
+        self._empty_add_btn = QPushButton("添加进程")
+        self._empty_add_btn.setCursor(Qt.PointingHandCursor)
+        self._empty_add_btn.setFixedWidth(120)
+        self._empty_add_btn.clicked.connect(self.open_add_app_dialog)
+        empty_layout.addWidget(self._empty_add_btn, alignment=Qt.AlignHCenter)
+        empty_layout.addStretch(1)
+
+        self._table_stack = QStackedWidget()
+        self._table_stack.addWidget(self.tableWidget)
+        self._table_stack.addWidget(self._empty_page)
+        table_layout.addWidget(self._table_stack, stretch=1)
         main_layout.addWidget(self._table_container, stretch=1)
 
         # ---- 状态 ----
@@ -594,15 +628,21 @@ class Mywindow(QMainWindow):
         # 「全部」按钮（固定，颜色更深以区分）
         btn_all = GroupChipButton("全部", None, draggable=False, window=self)
         btn_all.setProperty("fixed_btn", True)
+        btn_all.setMaximumWidth(140)
+        btn_all.setToolTip("全部")
         self.group_buttons.addButton(btn_all)
         self._group_btn_layout.addWidget(btn_all)
         if self._current_group_id is None:
             btn_all.setChecked(True)
         self._btn_group_all = btn_all
 
-        # 各分组按钮（可拖动排序）
+        # 各分组按钮（可拖动排序；过长名称省略显示，tooltip 保留全名）
+        fm = self._group_btn_container.fontMetrics()
         for gid, gname, color in groups:
-            btn = GroupChipButton(gname, gid, draggable=True, window=self, color=color)
+            display = fm.elidedText(gname, Qt.ElideRight, 100)
+            btn = GroupChipButton(display, gid, draggable=True, window=self, color=color)
+            btn.setMaximumWidth(140)
+            btn.setToolTip(gname)
             self.group_buttons.addButton(btn)
             self._group_btn_layout.addWidget(btn)
             if self._current_group_id == gid:
@@ -727,7 +767,7 @@ class Mywindow(QMainWindow):
         hidden = getattr(self, "_hidden_group_buttons", [])
         for btn in hidden:
             gid = btn.property("group_id")
-            act = menu.addAction(btn.text())
+            act = menu.addAction(self._find_group_name(gid) or btn.text())
             color = self._find_group_color(gid)
             if color:
                 act.setIcon(QIcon(
@@ -962,6 +1002,26 @@ class Mywindow(QMainWindow):
             self.statusBar().showMessage(f"找到 {matched} 个匹配项", 2000)
         else:
             self.statusBar().clearMessage()
+        self._update_empty_state(matched)
+
+    def _update_empty_state(self, matched: int):
+        """无可见行时切换到空状态页；区分「无应用」与「筛选无结果」。"""
+        if not hasattr(self, "_table_stack"):
+            return
+        if matched > 0:
+            self._table_stack.setCurrentIndex(0)
+            return
+        no_apps = self.tableWidget.rowCount() == 0
+        if no_apps:
+            self._empty_title.setText("还没有监控的应用")
+            self._empty_hint.setText("点击「添加进程」选择本地程序，或用「拾取窗口」直接框选窗口。")
+            self._empty_add_btn.setVisible(True)
+        else:
+            self._empty_title.setText("未找到匹配的应用")
+            self._empty_hint.setText("试试更换搜索关键词，或切换到「全部」分组。")
+            self._empty_add_btn.setVisible(False)
+        self._empty_icon.setPixmap(self._app_icon.pixmap(64, 64))
+        self._table_stack.setCurrentIndex(1)
 
     def _adjust_window_width(self, table_content_width: int):
         if getattr(self, "_width_locked", False):
