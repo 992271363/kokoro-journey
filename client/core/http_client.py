@@ -11,10 +11,12 @@ from __future__ import annotations
 from typing import Optional
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from util.config import Settings
 
 USE_PROXY_KEY = "useSystemProxy"
+_POOL_SIZE = 8  # 与并发上传批次数匹配，复用连接避免重复 TLS 握手
 
 _session: Optional[requests.Session] = None
 
@@ -28,6 +30,9 @@ def get_session() -> requests.Session:
     global _session
     if _session is None:
         _session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=_POOL_SIZE, pool_maxsize=_POOL_SIZE)
+        _session.mount("https://", adapter)
+        _session.mount("http://", adapter)
     _apply_proxy(_session)
     return _session
 

@@ -106,6 +106,8 @@ class _FakeSession:
         self.file_calls = 0
 
     def post(self, url, **kwargs):
+        if url.endswith("/files-batch"):
+            return _Resp(404, {"detail": "Not Found"})  # 走逐文件回退，覆盖重试逻辑
         if url.endswith("/files"):
             self.file_calls += 1
             if self.file_calls <= self.fail_times:
@@ -158,6 +160,8 @@ class _CloudFake:
             return _Resp(201, {"id": 999, "name": "MyGame"})
         if url.endswith("/versions"):
             return _Resp(201, {"versionId": 1, "versionNumber": 1})
+        if url.endswith("/files-batch"):
+            return _Resp(404, {"detail": "Not Found"})
         if url.endswith("/files"):
             return _Resp(201, {"ok": True})
         if url.endswith("/commit"):
@@ -230,6 +234,8 @@ class _IncrementalFake:
         if url.endswith("/versions"):
             return _Resp(201, {"versionId": 1, "versionNumber": 1,
                                "uploadPaths": ["sub/a.sav"]})
+        if url.endswith("/files-batch"):
+            return _Resp(404, {"detail": "Not Found"})
         if url.endswith("/files"):
             self.uploaded.append(kw.get("data", {}).get("path"))
             return _Resp(201, {"ok": True})
@@ -248,6 +254,52 @@ inc = _IncrementalFake()
 ss.get_session = lambda: inc
 ok_inc, _res_inc = ss.upload_game("tok", d, "G", server_id=1)
 check("增量: 只上传 uploadPaths 内文件", ok_inc and inc.uploaded == ["sub/a.sav"])
+
+
+# --- 批量：多文件合并进一次请求 + 无批量接口时回退 ---
+class _BatchFake:
+    def __init__(self):
+        self.batches = 0
+        self.single = 0
+
+    def post(self, url, **kw):
+        if url.endswith("/versions"):
+            return _Resp(201, {"versionId": 1, "versionNumber": 1,
+                               "uploadPaths": ["b.sav", "sub/a.sav"]})
+        if url.endswith("/files-batch"):
+            self.batches += 1
+            return _Resp(201, {"ok": True, "uploaded": []})
+        if url.endswith("/files"):
+            self.single += 1
+            return _Resp(201, {"ok": True})
+        if url.endswith("/commit"):
+            return _Resp(200, {"ok": True})
+        return _Resp(200, {})
+
+    def get(self, url, **kw):
+        return _Resp(200, [])
+
+    def delete(self, url, **kw):
+        return _Resp(200, {"ok": True})
+
+
+bf = _BatchFake()
+ss.get_session = lambda: bf
+ok_b, _res_b = ss.upload_game("tok", d, "G", server_id=1)
+check("批量: 多文件合并进 1 次请求", ok_b and bf.batches == 1 and bf.single == 0)
+
+
+class _NoBatchFake(_BatchFake):
+    def post(self, url, **kw):
+        if url.endswith("/files-batch"):
+            return _Resp(404, {"detail": "Not Found"})
+        return super().post(url, **kw)
+
+
+nb = _NoBatchFake()
+ss.get_session = lambda: nb
+ok_nb, _res_nb = ss.upload_game("tok", d, "G", server_id=1)
+check("批量回退: 无批量接口时逐文件上传", ok_nb and nb.batches == 0 and nb.single == 2)
 
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

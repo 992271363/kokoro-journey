@@ -1,5 +1,6 @@
 """云存档接口测试（SQLite + TestClient，无需 MariaDB；文件落到临时 SAVES_DIR）。"""
 import hashlib
+import json
 import os
 import sys
 from pathlib import Path
@@ -129,6 +130,37 @@ check("v2 复用文件已就位", os.path.isfile(os.path.join(_gdir, "v2", "save
 check("v2 新文件已落盘", os.path.isfile(os.path.join(_gdir, "v2", "save", "b.sav")))
 r = client.get(f"/saves/games/{game_id}/versions/{vid2}/files/download", params={"path": "save/a.sav"}, headers=H)
 check("v2 复用文件内容一致", r.status_code == 200 and r.content == content)
+
+# --- 批量上传：一次请求传多个文件 ---
+content_c = b"save-data-789"
+digest_c = hashlib.sha256(content_c).hexdigest()
+content_d = b"save-data-abc"
+digest_d = hashlib.sha256(content_d).hexdigest()
+manifest3 = {
+    "manifest": [
+        {"path": "save/c.sav", "size": len(content_c), "sha256": digest_c, "mtime_ns": 1},
+        {"path": "save/d.sav", "size": len(content_d), "sha256": digest_d, "mtime_ns": 2},
+    ],
+    "total_size": len(content_c) + len(content_d),
+}
+r = client.post(f"/saves/games/{game_id}/versions", json=manifest3, headers=H)
+check("v3 开版本 201", r.status_code == 201)
+vid3 = r.json()["versionId"]
+check("v3 两文件都需上传", sorted(r.json().get("uploadPaths") or []) == ["save/c.sav", "save/d.sav"])
+
+items = json.dumps([{"path": "save/c.sav", "sha256": digest_c},
+                    {"path": "save/d.sav", "sha256": digest_d}])
+r = client.post(
+    f"/saves/games/{game_id}/versions/{vid3}/files-batch",
+    data={"items": items},
+    files=[("files", ("c.sav", content_c)), ("files", ("d.sav", content_d))],
+    headers=H,
+)
+check("批量上传 201", r.status_code == 201)
+check("批量返回 uploaded", sorted(r.json().get("uploaded") or []) == ["save/c.sav", "save/d.sav"])
+check("v3 提交 200", client.post(f"/saves/games/{game_id}/versions/{vid3}/commit", headers=H).status_code == 200)
+r = client.get(f"/saves/games/{game_id}/versions/{vid3}/files/download", params={"path": "save/d.sav"}, headers=H)
+check("批量上传内容一致", r.status_code == 200 and r.content == content_d)
 
 # --- 单设备接管 ---
 r = client.post("/saves/device/claim", headers={"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"})

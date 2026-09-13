@@ -5,11 +5,13 @@
 """
 from __future__ import annotations
 
+import concurrent.futures as _futures
 import datetime
 import hashlib
 import json
 import os
 import shutil
+import threading
 import time
 from typing import List, Optional, Tuple
 
@@ -25,6 +27,9 @@ UPLOAD_TIMEOUT = 600
 
 MAX_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_FILE_BYTES = 90 * 1024 * 1024  # 客户端单文件硬拦截
+
+BATCH_MAX_BYTES = 8 * 1024 * 1024  # 单次批量请求携带的最大字节
+MAX_PARALLEL_BATCHES = 4           # 并发批次数
 
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = (1, 3, 9)  # 秒
@@ -327,28 +332,86 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
         to_upload = [m for m in manifest if m["path"] in want]
 
     total_files = len(to_upload)
-    for i, m in enumerate(to_upload, 1):
-        full = safe_join_local(local_dir, m["path"])
-        url = f"{API_URL}/saves/games/{server_id}/versions/{vid}/files"
-        def _do_upload():
-            with open(full, "rb") as fh:
-                return get_session().post(url, data={"path": m["path"], "sha256": m["sha256"]},
-                                          files={"file": (os.path.basename(m["path"]), fh)},
-                                          headers=_headers(token), timeout=UPLOAD_TIMEOUT)
+    if total_files:
+        # 按大小分组（单文件超阈值自成一批），批间并发，批内一次请求传多文件。
+        batches: List[List[dict]] = []
+        cur: List[dict] = []
+        cur_size = 0
+        for m in to_upload:
+            size = int(m["size"])
+            if cur and cur_size + size > BATCH_MAX_BYTES:
+                batches.append(cur)
+                cur, cur_size = [], 0
+            cur.append(m)
+            cur_size += size
+        if cur:
+            batches.append(cur)
 
-        try:
-            r = _send(_do_upload)
-        except requests.exceptions.RequestException as e:
-            delete_version(token, server_id, vid)
-            return False, _friendly_error(e)
-        if r.status_code == 409:
-            delete_version(token, server_id, vid)
-            return False, _detail_or_taken_over(r)
-        if r.status_code >= 400:
-            delete_version(token, server_id, vid)
-            return False, _detail(r)
-        if progress_cb:
-            progress_cb(i, total_files, "上传中")
+        progress_lock = threading.Lock()
+        done = {"n": 0}
+        base = f"{API_URL}/saves/games/{server_id}/versions/{vid}"
+
+        def _post_single(m):
+            full = safe_join_local(local_dir, m["path"])
+            def _do():
+                with open(full, "rb") as fh:
+                    return get_session().post(f"{base}/files",
+                                              data={"path": m["path"], "sha256": m["sha256"]},
+                                              files={"file": (os.path.basename(m["path"]), fh)},
+                                              headers=_headers(token), timeout=UPLOAD_TIMEOUT)
+            return _send(_do)
+
+        def _post_batch(batch):
+            items = [{"path": m["path"], "sha256": m["sha256"]} for m in batch]
+            def _do():
+                handles = []
+                try:
+                    for m in batch:
+                        handles.append((m, open(safe_join_local(local_dir, m["path"]), "rb")))
+                    files = [("file", (os.path.basename(m["path"]), fh)) for m, fh in handles]
+                    return get_session().post(f"{base}/files-batch",
+                                              data={"items": json.dumps(items, ensure_ascii=False)},
+                                              files=files, headers=_headers(token),
+                                              timeout=UPLOAD_TIMEOUT)
+                finally:
+                    for _m, fh in handles:
+                        fh.close()
+            return _send(_do)
+
+        def _run_batch(batch):
+            r = _post_batch(batch)
+            if r.status_code == 404:
+                # 旧服务端无批量接口：回退逐文件
+                for m in batch:
+                    rr = _post_single(m)
+                    if rr.status_code == 409:
+                        return "taken", rr
+                    if rr.status_code >= 400:
+                        return "error", rr
+            elif r.status_code == 409:
+                return "taken", r
+            elif r.status_code >= 400:
+                return "error", r
+            with progress_lock:
+                done["n"] += len(batch)
+                if progress_cb:
+                    progress_cb(done["n"], total_files, "上传中")
+            return "ok", r
+
+        with _futures.ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as ex:
+            future_list = [ex.submit(_run_batch, b) for b in batches]
+            try:
+                for fut in _futures.as_completed(future_list):
+                    kind, r = fut.result()
+                    if kind == "taken":
+                        delete_version(token, server_id, vid)
+                        return False, _detail_or_taken_over(r)
+                    if kind == "error":
+                        delete_version(token, server_id, vid)
+                        return False, _detail(r)
+            except requests.exceptions.RequestException as e:
+                delete_version(token, server_id, vid)
+                return False, _friendly_error(e)
 
     ok, res = _post_json(token, f"/saves/games/{server_id}/versions/{vid}/commit")
     if not ok:

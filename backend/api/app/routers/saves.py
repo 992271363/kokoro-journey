@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -251,6 +252,36 @@ def begin_version(
     return {"versionId": ver.id, "versionNumber": version_number, "uploadPaths": upload_paths}
 
 
+async def _store_file(user_id: int, game_id: int, version_id: int,
+                      rel: str, entry: models.ServerSaveFile,
+                      upload: UploadFile) -> int:
+    """把上传流写入临时目录并校验大小/sha256；失败清理临时目录并抛 400/413。"""
+    tdir = save_storage.temp_dir(user_id, game_id, version_id)
+    dest = save_storage.safe_join(tdir, *rel.split("/"))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+    size = 0
+    with open(dest, "wb") as out:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > save_storage.MAX_FILE_BYTES:
+                out.close()
+                save_storage.remove_tree(tdir)
+                raise HTTPException(status_code=413, detail="单文件超过服务端上限")
+            out.write(chunk)
+
+    if size != entry.size:
+        save_storage.remove_tree(tdir)
+        raise HTTPException(status_code=400, detail=f"文件大小与清单不一致: {rel}")
+    if save_storage.sha256_file(dest).lower() != entry.sha256.lower():
+        save_storage.remove_tree(tdir)
+        raise HTTPException(status_code=400, detail=f"文件 sha256 与清单不一致: {rel}")
+    return size
+
+
 @router.post("/games/{game_id}/versions/{version_id}/files", status_code=status.HTTP_201_CREATED)
 async def upload_version_file(
     game_id: int,
@@ -282,30 +313,51 @@ async def upload_version_file(
     if entry is None:
         raise HTTPException(status_code=400, detail="文件不在清单中")
 
-    tdir = save_storage.temp_dir(current_user.id, game_id, version_id)
-    dest = save_storage.safe_join(tdir, *rel.split("/"))
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-
-    size = 0
-    with open(dest, "wb") as out:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > save_storage.MAX_FILE_BYTES:
-                out.close()
-                save_storage.remove_tree(tdir)
-                raise HTTPException(status_code=413, detail="单文件超过服务端上限")
-            out.write(chunk)
-
-    if size != entry.size:
-        save_storage.remove_tree(tdir)
-        raise HTTPException(status_code=400, detail="文件大小与清单不一致")
-    if save_storage.sha256_file(dest).lower() != entry.sha256.lower():
-        save_storage.remove_tree(tdir)
-        raise HTTPException(status_code=400, detail="文件 sha256 与清单不一致")
+    size = await _store_file(current_user.id, game_id, version_id, rel, entry, file)
     return {"ok": True, "path": rel, "size": size}
+
+
+@router.post("/games/{game_id}/versions/{version_id}/files-batch", status_code=status.HTTP_201_CREATED)
+async def upload_version_files_batch(
+    game_id: int,
+    version_id: int,
+    items: str = Form(...),
+    files: List[UploadFile] = File(...),
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """一次请求上传多个文件：items 为 JSON 数组 [{path, sha256}]，与 files 顺序一一对应。"""
+    _get_own_game(db, current_user, game_id)
+    _require_device(db, current_user, x_device_id)
+
+    ver = db.query(models.ServerSaveVersion).filter_by(
+        id=version_id, game_id=game_id, status="pending"
+    ).first()
+    if ver is None:
+        raise HTTPException(status_code=404, detail="待上传版本不存在")
+
+    try:
+        parsed = json.loads(items)
+    except Exception:
+        raise HTTPException(status_code=400, detail="items 不是合法 JSON")
+    if not isinstance(parsed, list) or len(parsed) != len(files):
+        raise HTTPException(status_code=400, detail="items 与文件数量不一致")
+
+    uploaded: list[str] = []
+    for item, upload in zip(parsed, files):
+        try:
+            rel = save_storage.safe_relpath((item or {}).get("path"))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        entry = db.query(models.ServerSaveFile).filter_by(
+            version_id=version_id, relative_path=rel
+        ).first()
+        if entry is None:
+            raise HTTPException(status_code=400, detail=f"文件不在清单中: {rel}")
+        await _store_file(current_user.id, game_id, version_id, rel, entry, upload)
+        uploaded.append(rel)
+    return {"ok": True, "uploaded": uploaded}
 
 
 @router.post("/games/{game_id}/versions/{version_id}/commit")
