@@ -102,6 +102,18 @@ Write-Host "打包完成: $DistDir" -ForegroundColor Green
 Write-Host "  kokoro-journey.exe  主程序（无黑窗，开机自启指向它）"
 Write-Host "  log-console.exe     带日志黑窗启动器（关闭黑窗不影响主程序）"
 Write-Host "  已同步: $ClientDist"
+
+# 安装包同名时，先把旧包改名为 .exe.old<n>，避免覆盖历史安装包
+$InstallerOut = Join-Path $ProjectRoot "installer_output"
+$InstallerName = "KokoroJourneySetup-$BuildVersion.exe"
+$InstallerPath = Join-Path $InstallerOut $InstallerName
+if (Test-Path -LiteralPath $InstallerPath) {
+    $n = 1
+    while (Test-Path -LiteralPath "$InstallerPath.old$n") { $n++ }
+    Rename-Item -LiteralPath $InstallerPath -NewName "$InstallerName.old$n"
+    Write-Host "旧安装包已改名: $InstallerName.old$n" -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "编译安装包（手动执行，脚本不会自动调用 ISCC）:" -ForegroundColor Yellow
 Write-Host ("  ISCC.exe /DMyAppVersion=""{0}"" KokoroJourney.iss" -f $BuildVersion)
