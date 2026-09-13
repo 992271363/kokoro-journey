@@ -16,7 +16,7 @@ def check(name, cond):
     print(f"[{'PASS' if cond else 'FAIL'}] {name}")
 
 
-base = tempfile.mkdtemp(prefix="kokoro_save_sync_")
+base = _common.tmpdir("kokoro_save_sync_")
 
 # --- build_manifest ---
 d = os.path.join(base, "save")

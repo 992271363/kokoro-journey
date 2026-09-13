@@ -18,7 +18,7 @@ def check(name, cond):
     print(f"[{'PASS' if cond else 'FAIL'}] {name}")
 
 
-root = tempfile.mkdtemp(prefix="kokoro_mig_")
+root = _common.tmpdir("kokoro_mig_")
 src = os.path.join(root, "src")
 dst = os.path.join(root, "dst")
 os.makedirs(src)

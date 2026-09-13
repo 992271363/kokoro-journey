@@ -53,7 +53,7 @@ check("配置目录本身: dataDirectory 未被改写", Settings().get("dataDire
 
 # 对照：普通目录应能正常确认
 warnings.clear()
-good = tempfile.mkdtemp(prefix="kokoro_wizard_ok_")
+good = _common.tmpdir("kokoro_wizard_ok_")
 w4 = FirstRunWizard(initial_path=good, reconfigure=True)
 w4._confirm()
 check("普通目录: 无警告", len(warnings) == 0)

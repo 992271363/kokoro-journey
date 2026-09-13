@@ -8,20 +8,20 @@
 """
 import os
 import sys
-import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
 BACKEND_API = Path(__file__).resolve().parents[1] / "api"
 sys.path.insert(0, str(BACKEND_API))
 
+import _common  # noqa: E402
+
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 
 import sqlalchemy  # noqa: E402
 
 _real_create_engine = sqlalchemy.create_engine
-_fd, _db_path = tempfile.mkstemp(prefix="kokoro_backend_test_", suffix=".db")
-os.close(_fd)
+_db_path = _common.tmpfile("kokoro_backend_test_", ".db")
 _test_engine = _real_create_engine(
     f"sqlite:///{_db_path}", connect_args={"check_same_thread": False}
 )

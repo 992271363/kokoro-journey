@@ -66,7 +66,7 @@ def reset():
 
 
 # --- 下载 NEW 成功 ---
-base = tempfile.mkdtemp(prefix="kokoro_bind_")
+base = _common.tmpdir("kokoro_bind_")
 local = os.path.join(base, "game_new")
 reset()
 ss.list_versions = lambda *a, **k: (True, [{"id": 7, "versionNumber": 3}])

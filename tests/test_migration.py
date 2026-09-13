@@ -32,7 +32,7 @@ if not os.path.isdir(src) or not os.path.exists(src_db):
     sys.exit(0)
 
 # 复制真实用户目录作为“旧数据”样本
-old_root = tempfile.mkdtemp(prefix="kokoro_migration_")
+old_root = _common.tmpdir("kokoro_migration_")
 old_dir = os.path.join(old_root, "Kokoro Journey")
 try:
     shutil.copytree(src, old_dir)

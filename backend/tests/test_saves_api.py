@@ -2,22 +2,22 @@
 import hashlib
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 BACKEND_API = Path(__file__).resolve().parents[1] / "api"
 sys.path.insert(0, str(BACKEND_API))
 
+import _common  # noqa: E402
+
 # 必须在导入 app 之前设置
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
-_SAVES_DIR = tempfile.mkdtemp(prefix="kokoro_saves_api_")
+_SAVES_DIR = _common.tmpdir("kokoro_saves_api_")
 os.environ["SAVES_DIR"] = _SAVES_DIR
 
 import sqlalchemy  # noqa: E402
 
 _real_create_engine = sqlalchemy.create_engine
-_fd, _db_path = tempfile.mkstemp(prefix="kokoro_saves_api_", suffix=".db")
-os.close(_fd)
+_db_path = _common.tmpfile("kokoro_saves_api_", ".db")
 _test_engine = _real_create_engine(f"sqlite:///{_db_path}", connect_args={"check_same_thread": False})
 sqlalchemy.create_engine = lambda *a, **k: _test_engine
 

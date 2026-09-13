@@ -2,12 +2,12 @@
 import hashlib
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 BACKEND_API = Path(__file__).resolve().parents[1] / "api"
 sys.path.insert(0, str(BACKEND_API))
 
+import _common  # noqa: E402
 from app import save_storage as ss  # noqa: E402
 
 ok = True
@@ -27,7 +27,7 @@ def raises(fn):
         return True
 
 
-root = tempfile.mkdtemp(prefix="kokoro_saves_test_")
+root = _common.tmpdir("kokoro_saves_test_")
 
 # --- safe_relpath ---
 check("safe_relpath 普通路径", ss.safe_relpath("a/b/c.txt") == "a/b/c.txt")

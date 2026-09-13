@@ -26,7 +26,7 @@ class E:
 
 
 # 本地目录 + 指纹
-d = tempfile.mkdtemp(prefix="kokoro_auto_")
+d = _common.tmpdir("kokoro_auto_")
 with open(os.path.join(d, "a.sav"), "wb") as f:
     f.write(b"x")
 fp = ss.tree_fingerprint(d)
