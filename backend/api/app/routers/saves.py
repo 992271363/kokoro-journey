@@ -39,7 +39,14 @@ def _require_device(db: Session, user: models.User, device_id: Optional[str]) ->
         db.refresh(sess)
         return sess
     if sess.active_device_id != device_id:
-        raise HTTPException(status_code=409, detail="云同步已由其他设备接管")
+        logger.warning(
+            f"用户 {user.username} 云同步设备冲突：当前 {sess.active_device_id}，请求 {device_id}"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="云同步已由其他设备接管",
+            headers={"X-Cloud-Error": "taken_over"},
+        )
     return sess
 
 
@@ -202,17 +209,46 @@ def begin_version(
     save_storage.remove_tree(tdir)
     save_storage.ensure_dir(tdir)
 
+    # 增量复用：与上一已提交版本 path+sha256 相同的文件，直接硬链接进临时目录，
+    # 免去重新上传；客户端只上传 upload_paths 里的文件。
+    base = _latest_committed(db, game_id)
+    base_files: dict[str, str] = {}
+    base_dir = None
+    if base is not None:
+        base_dir = save_storage.version_dir(current_user.id, game_id, base.version_number)
+        for row in db.query(models.ServerSaveFile).filter_by(version_id=base.id).all():
+            base_files[row.relative_path] = (row.sha256 or "").lower()
+
+    upload_paths: list[str] = []
     for m in manifest:
+        rel = save_storage.safe_relpath(m["path"])
+        digest = str(m["sha256"]).lower()
+        reused = False
+        if base_dir is not None and base_files.get(rel) == digest:
+            src = save_storage.safe_join(base_dir, *rel.split("/"))
+            dst = save_storage.safe_join(tdir, *rel.split("/"))
+            if os.path.isfile(src):
+                try:
+                    save_storage.link_or_copy(src, dst)
+                    reused = True
+                except OSError:
+                    reused = False
+        if not reused:
+            upload_paths.append(rel)
+
         db.add(models.ServerSaveFile(
             version_id=ver.id,
-            relative_path=save_storage.safe_relpath(m["path"]),
+            relative_path=rel,
             size=int(m["size"]),
-            sha256=str(m["sha256"]).lower(),
+            sha256=digest,
             mtime_ns=m.get("mtime_ns"),
         ))
     db.commit()
-    logger.info(f"用户 {current_user.username} 游戏 {game.name} 开启版本 v{version_number} (id={ver.id})")
-    return {"versionId": ver.id, "versionNumber": version_number}
+    logger.info(
+        f"用户 {current_user.username} 游戏 {game.name} 开启版本 v{version_number} "
+        f"(id={ver.id})，需上传 {len(upload_paths)}/{len(manifest)}"
+    )
+    return {"versionId": ver.id, "versionNumber": version_number, "uploadPaths": upload_paths}
 
 
 @router.post("/games/{game_id}/versions/{version_id}/files", status_code=status.HTTP_201_CREATED)

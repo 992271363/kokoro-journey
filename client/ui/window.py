@@ -1037,12 +1037,12 @@ class Mywindow(QMainWindow):
         queue = getattr(self, "_auto_upload_queue", [])
         if not queue:
             return
-        import core.save_sync as ss
+        from core import save_auto as sa
         entry = queue.pop(0)
         self._run_bg_worker(
-            ss.upload_game,
+            sa.upload_entry,
             lambda ok, res, e=entry: self._on_auto_upload_done(ok, res, e),
-            self.token, entry.local_path, entry.name, entry.server_id)
+            self.token, entry)
 
     def _on_auto_upload_done(self, ok, res, entry):
         try:

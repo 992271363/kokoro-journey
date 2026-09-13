@@ -140,5 +140,114 @@ ok_up2, res_up2 = ss.upload_game("tok", updir, "G", server_id=1)
 check("上传: 持续失败返回失败", not ok_up2)
 check("上传: 失败信息为友好中文", isinstance(res_up2, str) and "网络" in res_up2)
 
+
+# --- 同名复用远端游戏 id（不再重复 create） ---
+class _CloudFake:
+    def __init__(self, games):
+        self.games = games
+        self.created = 0
+
+    def get(self, url, **kwargs):
+        if url.endswith("/saves/games"):
+            return _Resp(200, self.games)
+        return _Resp(200, {})
+
+    def post(self, url, **kwargs):
+        if url.endswith("/saves/games"):
+            self.created += 1
+            return _Resp(201, {"id": 999, "name": "MyGame"})
+        if url.endswith("/versions"):
+            return _Resp(201, {"versionId": 1, "versionNumber": 1})
+        if url.endswith("/files"):
+            return _Resp(201, {"ok": True})
+        if url.endswith("/commit"):
+            return _Resp(200, {"ok": True})
+        return _Resp(200, {})
+
+    def delete(self, url, **kwargs):
+        return _Resp(200, {"ok": True})
+
+
+cloud = _CloudFake([{"id": 7, "name": "MyGame", "latestVersion": 1}])
+ss.get_session = lambda: cloud
+ok_reuse, res_reuse = ss.upload_game("tok", updir, "MyGame", server_id=None)
+check("同名复用远端 id", ok_reuse and res_reuse["server_id"] == 7)
+check("同名复用不再 create", cloud.created == 0)
+
+
+# --- 409 语义区分（同名 vs 设备占用） ---
+class _R409:
+    def __init__(self, taken):
+        self.status_code = 409
+        self.headers = {"X-Cloud-Error": "taken_over"} if taken else {}
+
+    def json(self):
+        return {"detail": "同名游戏已存在"}
+
+
+class _S409:
+    def __init__(self, taken):
+        self._taken = taken
+
+    def post(self, url, **kwargs):
+        return _R409(self._taken)
+
+
+ss.get_session = lambda: _S409(False)
+ok_d, res_d = ss.create_remote_game("tok", "X")
+check("非设备 409 返回真实 detail", (not ok_d) and res_d == "同名游戏已存在")
+
+ss.get_session = lambda: _S409(True)
+ok_t, res_t = ss.create_remote_game("tok", "X")
+check("设备 409 返回 TAKEN_OVER", (not ok_t) and res_t == ss.TAKEN_OVER)
+
+
+# --- sha256 缓存：重复构建不重算 ---
+calls = {"n": 0}
+_orig_sha = ss.sha256_file
+
+
+def _counting(path, *a, **k):
+    calls["n"] += 1
+    return _orig_sha(path, *a, **k)
+
+
+ss.sha256_file = _counting
+ss._SHA256_CACHE.clear()
+ss.build_manifest(d)
+n1 = calls["n"]
+ss.build_manifest(d)
+check("sha256 缓存: 第二次不再重算", calls["n"] == n1)
+ss.sha256_file = _orig_sha
+
+
+# --- 增量：只上传 uploadPaths 内文件 ---
+class _IncrementalFake:
+    def __init__(self):
+        self.uploaded = []
+
+    def post(self, url, **kw):
+        if url.endswith("/versions"):
+            return _Resp(201, {"versionId": 1, "versionNumber": 1,
+                               "uploadPaths": ["sub/a.sav"]})
+        if url.endswith("/files"):
+            self.uploaded.append(kw.get("data", {}).get("path"))
+            return _Resp(201, {"ok": True})
+        if url.endswith("/commit"):
+            return _Resp(200, {"ok": True})
+        return _Resp(200, {})
+
+    def get(self, url, **kw):
+        return _Resp(200, [])
+
+    def delete(self, url, **kw):
+        return _Resp(200, {"ok": True})
+
+
+inc = _IncrementalFake()
+ss.get_session = lambda: inc
+ok_inc, _res_inc = ss.upload_game("tok", d, "G", server_id=1)
+check("增量: 只上传 uploadPaths 内文件", ok_inc and inc.uploaded == ["sub/a.sav"])
+
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

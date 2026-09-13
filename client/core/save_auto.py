@@ -119,3 +119,17 @@ def auto_sync_all_on_login(token: str, progress_cb=None) -> Tuple[bool, str]:
 
 def _msg(res) -> str:
     return "云同步已由其他设备接管" if res == ss.TAKEN_OVER else str(res)
+
+
+def upload_entry(token: str, entry) -> Tuple[bool, object]:
+    """自动上传单个条目：先登记设备（单设备接管），再上传。
+
+    返回 (True, {"server_id","version","fingerprint"}) 或 (False, 错误)。
+    """
+    ok, res = ss.claim_device(token)
+    if not ok:
+        return False, _msg(res)
+    ok, res = ss.upload_game(token, entry.local_path, entry.name, entry.server_id)
+    if not ok:
+        return False, _msg(res)
+    return True, res

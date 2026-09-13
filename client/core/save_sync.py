@@ -56,6 +56,21 @@ def sha256_file(path: str, chunk_size: int = 1024 * 1024) -> str:
     return h.hexdigest()
 
 
+# 仅用于 build_manifest：按 (绝对路径, 大小, mtime_ns) 记忆哈希，避免重复读盘。
+# 服务端仍会对收到的内容重算 sha256 校验，缓存不会削弱完整性检查。
+_SHA256_CACHE: dict = {}
+
+
+def _cached_sha256(path: str, size: int, mtime_ns: int) -> str:
+    key = (os.path.abspath(path), int(size), int(mtime_ns))
+    hit = _SHA256_CACHE.get(key)
+    if hit is not None:
+        return hit
+    digest = sha256_file(path)
+    _SHA256_CACHE[key] = digest
+    return digest
+
+
 def build_tree(local_dir: str) -> List[dict]:
     """扫描目录，得到 (相对路径, 大小, mtime_ns) 列表（不含内容哈希）。"""
     items: List[dict] = []
@@ -83,10 +98,15 @@ def tree_fingerprint(local_dir: str) -> str:
 
 
 def build_manifest(local_dir: str) -> List[dict]:
-    """扫描目录，得到可上传清单（含 sha256）。"""
+    """扫描目录，得到可上传清单（含 sha256）。
+
+    sha256 按 (绝对路径, 大小, mtime_ns) 缓存，避免重复同步时全量重算；
+    这与 timestamp_fingerprint 的判据一致，不改变清单内容与服务端校验。
+    """
     items = build_tree(local_dir)
     for m in items:
-        m["sha256"] = sha256_file(os.path.join(local_dir, m["path"]))
+        full = os.path.join(local_dir, m["path"])
+        m["sha256"] = _cached_sha256(full, m["size"], m["mtime_ns"])
     return items
 
 
@@ -141,6 +161,22 @@ def _detail(r: requests.Response) -> str:
         return f"HTTP {r.status_code}"
 
 
+TAKEN_OVER_HEADER = "X-Cloud-Error"
+TAKEN_OVER_HEADER_VALUE = "taken_over"
+TAKEN_OVER_DETAIL = "云同步已由其他设备接管"
+
+
+def _is_taken_over(r: requests.Response) -> bool:
+    """409 不都是"被其他设备接管"（还有"同名游戏已存在"），据标识区分。"""
+    if r.headers.get(TAKEN_OVER_HEADER) == TAKEN_OVER_HEADER_VALUE:
+        return True
+    return _detail(r) == TAKEN_OVER_DETAIL
+
+
+def _detail_or_taken_over(r: requests.Response) -> str:
+    return TAKEN_OVER if _is_taken_over(r) else _detail(r)
+
+
 def _friendly_error(exc: Exception) -> str:
     """把底层网络异常翻译成用户能看懂的中文提示。"""
     if isinstance(exc, requests.exceptions.Timeout):
@@ -175,7 +211,7 @@ def _post_json(token: str, path: str, payload: Optional[dict] = None,
     except requests.exceptions.RequestException as e:
         return False, _friendly_error(e)
     if r.status_code == 409:
-        return False, TAKEN_OVER
+        return False, _detail_or_taken_over(r)
     if r.status_code >= 400:
         return False, _detail(r)
     return True, r.json()
@@ -189,7 +225,7 @@ def _get_json(token: str, path: str, params: Optional[dict] = None,
     except requests.exceptions.RequestException as e:
         return False, _friendly_error(e)
     if r.status_code == 409:
-        return False, TAKEN_OVER
+        return False, _detail_or_taken_over(r)
     if r.status_code >= 400:
         return False, _detail(r)
     return True, r.json()
@@ -202,7 +238,7 @@ def _delete(token: str, path: str) -> Tuple[bool, object]:
     except requests.exceptions.RequestException as e:
         return False, _friendly_error(e)
     if r.status_code == 409:
-        return False, TAKEN_OVER
+        return False, _detail_or_taken_over(r)
     if r.status_code >= 400:
         return False, _detail(r)
     return True, r.json()
@@ -224,6 +260,18 @@ def list_games(token: str) -> Tuple[bool, object]:
 
 def create_remote_game(token: str, name: str) -> Tuple[bool, object]:
     return _post_json(token, "/saves/games", {"name": name})
+
+
+def _find_remote_game_id(token: str, name: str) -> Optional[int]:
+    """按名字查已存在的远端游戏 id。
+
+    上次上传半途失败时服务端可能已建好同名游戏（本地 server_id 仍为空），
+    这里先复用，避免重试时再建同名被 409 拒绝。
+    """
+    ok, games = list_games(token)
+    if not ok or not isinstance(games, list):
+        return None
+    return next((g["id"] for g in games if g.get("name") == name), None)
 
 
 def delete_remote_game(token: str, server_id: int) -> Tuple[bool, object]:
@@ -255,10 +303,12 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
     total = sum(int(m["size"]) for m in manifest)
 
     if server_id is None:
-        ok, res = create_remote_game(token, name)
-        if not ok:
-            return False, res
-        server_id = res["id"]
+        server_id = _find_remote_game_id(token, name)
+        if server_id is None:
+            ok, res = create_remote_game(token, name)
+            if not ok:
+                return False, res
+            server_id = res["id"]
 
     ok, res = _post_json(token, f"/saves/games/{server_id}/versions",
                          {"manifest": manifest, "total_size": total})
@@ -267,8 +317,17 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
     vid = res["versionId"]
     vnum = res["versionNumber"]
 
-    total_files = len(manifest)
-    for i, m in enumerate(manifest, 1):
+    # 增量：服务端会复用与上一版本 path+sha256 相同的文件，只回传需要上传的路径。
+    # 兼容旧服务端：没有 uploadPaths 时按全量上传。
+    upload_paths = res.get("uploadPaths")
+    if upload_paths is None:
+        to_upload = manifest
+    else:
+        want = set(upload_paths)
+        to_upload = [m for m in manifest if m["path"] in want]
+
+    total_files = len(to_upload)
+    for i, m in enumerate(to_upload, 1):
         full = safe_join_local(local_dir, m["path"])
         url = f"{API_URL}/saves/games/{server_id}/versions/{vid}/files"
         def _do_upload():
@@ -284,7 +343,7 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
             return False, _friendly_error(e)
         if r.status_code == 409:
             delete_version(token, server_id, vid)
-            return False, TAKEN_OVER
+            return False, _detail_or_taken_over(r)
         if r.status_code >= 400:
             delete_version(token, server_id, vid)
             return False, _detail(r)

@@ -52,6 +52,8 @@ r = client.post("/saves/games", json={"name": "Game A"}, headers=H)
 check("建游戏 201", r.status_code == 201)
 game_id = r.json()["id"]
 check("重名游戏 409", client.post("/saves/games", json={"name": "Game A"}, headers=H).status_code == 409)
+r = client.post("/saves/games", json={"name": "Game A"}, headers=H)
+check("重名 409 不带设备标记", r.headers.get("x-cloud-error") != "taken_over")
 
 # --- 开版本 + 上传 + 提交 ---
 content = b"save-data-123"
@@ -98,10 +100,42 @@ check("单文件超限被拒", client.post(f"/saves/games/{game_id}/versions", j
 oversize_total = {"manifest": [{"path": f"{i}.sav", "size": 100 * 1024 * 1024, "sha256": "a" * 64} for i in range(6)], "total_size": 600 * 1024 * 1024}
 check("总大小超限被拒", client.post(f"/saves/games/{game_id}/versions", json=oversize_total, headers=H).status_code == 400)
 
+# --- 增量复用：v2 只上传变化的文件 ---
+content_b = b"save-data-456"
+digest_b = hashlib.sha256(content_b).hexdigest()
+manifest2 = {
+    "manifest": [
+        {"path": "save/a.sav", "size": len(content), "sha256": digest, "mtime_ns": 123},
+        {"path": "save/b.sav", "size": len(content_b), "sha256": digest_b, "mtime_ns": 456},
+    ],
+    "total_size": len(content) + len(content_b),
+}
+r = client.post(f"/saves/games/{game_id}/versions", json=manifest2, headers=H)
+check("v2 开版本 201", r.status_code == 201)
+vid2 = r.json()["versionId"]
+check("v2 仅需上传变化文件", r.json().get("uploadPaths") == ["save/b.sav"])
+
+r = client.post(
+    f"/saves/games/{game_id}/versions/{vid2}/files",
+    data={"path": "save/b.sav", "sha256": digest_b},
+    files={"file": ("b.sav", content_b)},
+    headers=H,
+)
+check("v2 上传变化文件 201", r.status_code == 201)
+check("v2 提交 200", client.post(f"/saves/games/{game_id}/versions/{vid2}/commit", headers=H).status_code == 200)
+
+_gdir = os.path.join(_SAVES_DIR, str(uid), str(game_id))
+check("v2 复用文件已就位", os.path.isfile(os.path.join(_gdir, "v2", "save", "a.sav")))
+check("v2 新文件已落盘", os.path.isfile(os.path.join(_gdir, "v2", "save", "b.sav")))
+r = client.get(f"/saves/games/{game_id}/versions/{vid2}/files/download", params={"path": "save/a.sav"}, headers=H)
+check("v2 复用文件内容一致", r.status_code == 200 and r.content == content)
+
 # --- 单设备接管 ---
 r = client.post("/saves/device/claim", headers={"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"})
 check("新设备登记成功", r.status_code == 200 and r.json()["previousDeviceId"] == "dev-A")
-check("旧设备云操作被拒(409)", client.get("/saves/games", headers=H).status_code == 409)
+r = client.get("/saves/games", headers=H)
+check("旧设备云操作被拒(409)", r.status_code == 409)
+check("设备冲突带 X-Cloud-Error 头", r.headers.get("x-cloud-error") == "taken_over")
 HB = {"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"}
 check("新设备云操作可用", client.get("/saves/games", headers=HB).status_code == 200)
 

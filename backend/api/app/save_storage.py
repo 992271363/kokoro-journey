@@ -133,6 +133,19 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
+def link_or_copy(src: str, dst: str) -> None:
+    """优先硬链接（同卷、瞬时、不占额外空间），失败则回退复制。
+
+    用于增量上传：把上一版本中未改动的文件复用到新版本的临时目录。
+    各版本目录本身不变；prune 删除旧版本时，被复用的 inode 因仍有链接而存活。
+    """
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
 def atomic_commit(temp: str, final: str) -> None:
     """把临时目录原子改名为最终版本目录；最终目录已存在则抛错。"""
     if os.path.exists(final):
