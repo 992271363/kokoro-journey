@@ -10,26 +10,35 @@ from util.state import update_state
 
 
 class FirstRunWizard(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, initial_path=None, reconfigure=False):
         super().__init__(parent)
-        self.setWindowTitle("欢迎使用 Kokoro Journey")
+        self._reconfigure = reconfigure
+        self.setWindowTitle("更改数据存储位置" if reconfigure else "欢迎使用 Kokoro Journey")
         self.setFixedSize(520, 240)
         self.setWindowFlags(Qt.Dialog | Qt.CustomizeWindowHint | Qt.WindowTitleHint)
 
-        self._selected_path = _default_appdata()
+        self._selected_path = (
+            os.path.normpath(initial_path) if initial_path else _default_appdata()
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(16)
 
-        title = QLabel("<b>选择数据存储位置</b>")
+        title = QLabel(
+            "<b>更改数据存储位置</b>" if self._reconfigure else "<b>选择数据存储位置</b>"
+        )
         title.setProperty("role", "title")
         layout.addWidget(title)
 
-        desc = QLabel(
+        desc_text = (
+            "更改位置后重启应用，会自动把数据库等数据迁移到新目录。\n"
+            "当前使用的位置如下，可修改，也可点击「默认」或「根目录」。"
+            if self._reconfigure else
             "应用需要创建一个目录来存放本地数据库、设置和未同步数据。\n"
-            "你可以使用默认路径，也可以选择放置于根目录或其他位置。"
+            "你可以使用默认路径，也可以放置于根目录或其他位置。"
         )
+        desc = QLabel(desc_text)
         desc.setProperty("role", "desc")
         desc.setWordWrap(True)
         layout.addWidget(desc)
@@ -63,7 +72,7 @@ class FirstRunWizard(QDialog):
 
         btn_layout.addStretch()
 
-        self.confirm_btn = QPushButton("开始使用")
+        self.confirm_btn = QPushButton("保存" if self._reconfigure else "开始使用")
         self.confirm_btn.setFixedHeight(34)
         self.confirm_btn.setDefault(True)
         self.confirm_btn.clicked.connect(self._confirm)

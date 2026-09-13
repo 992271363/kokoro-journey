@@ -503,7 +503,7 @@ class SettingsDialog(QDialog):
 
     def _on_change_data_dir(self):
         old_dir = get_data_dir()
-        wizard = FirstRunWizard(self)
+        wizard = FirstRunWizard(self, initial_path=old_dir, reconfigure=True)
         if wizard.exec() != QDialog.Accepted:
             return
         new_path = wizard.selected_path()
