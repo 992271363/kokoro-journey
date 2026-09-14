@@ -101,5 +101,32 @@ check("拒绝接管则不重试", not retried and not claimed)
 AppRepository.delete_save_game(e_retry.id)
 dlg4.close()
 
+# --- 新增云存档：关联应用选择窗口 + 名称预填 ---
+from ui.personal_center import AddSaveGameDialog, AppPickDialog  # noqa: E402
+
+AppRepository.add_app(r"C:\games\TestApp.exe", "TestApp")
+
+ap = AppPickDialog(None)
+rows = {ap.table.item(r, 0).text() for r in range(ap.table.rowCount())}
+check("AppPick 列出已监控应用", "TestApp" in rows)
+ap.search_edit.setText("TestApp")
+check("AppPick 搜索过滤", ap.table.rowCount() == 1)
+ap.table.selectRow(0)
+sel = ap.selected_app()
+check("AppPick 返回所选应用", sel is not None and sel.exe_name == "TestApp")
+ap.close()
+
+ad = AddSaveGameDialog(None)
+ad._apply_app(r"C:\games\TestApp.exe", "TestApp")
+check("选应用后名称预填", ad.name_edit.text() == "TestApp")
+ad.name_edit.setText("我的自定义名")
+ad._on_name_edited("我的自定义名")  # 模拟用户手改
+ad._apply_app(r"C:\games\Other.exe", "Other")
+check("手改名称后换应用不覆盖", ad.name_edit.text() == "我的自定义名")
+check("values 返回关联路径", ad.values()["linked_app_path"] == r"C:\games\Other.exe")
+ad._clear_app()
+check("清除关联", ad.values()["linked_app_path"] is None and ad.app_edit.text() == "")
+ad.close()
+
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

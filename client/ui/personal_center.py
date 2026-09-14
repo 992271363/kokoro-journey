@@ -11,13 +11,15 @@ from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog, QComboBox, QFormLayout, QListWidget,
+    QMessageBox, QFileDialog, QFormLayout, QListWidget,
     QListWidgetItem, QDialogButtonBox,
 )
 
-from db.repository import AppRepository
+from db.repository import AppRepository, AppInfo
 from core import save_sync as ss
 from core import save_bind as sb
+from ui.widgets import ChineseMenuLineEdit
+from util.search import make_search_keywords, matches_search_keywords
 
 STATUS_TEXT = {
     ss.STATUS_IN_SYNC: "与云端一致",
@@ -30,6 +32,105 @@ STATUS_TEXT = {
 }
 
 
+class AppPickDialog(QDialog):
+    """选择关联应用：搜索 + 排序（参考 ProcSelectDialog）。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("选择关联应用")
+        self.resize(564, 429)
+
+        layout = QVBoxLayout(self)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["应用名", "路径", "最近启动"])
+        layout.addWidget(self.table)
+
+        toolbar = QHBoxLayout()
+        self.btn_refresh = QPushButton("刷新")
+        toolbar.addWidget(self.btn_refresh)
+        toolbar.addStretch()
+        self.search_edit = ChineseMenuLineEdit()
+        self.search_edit.setMaximumSize(155, 16777215)
+        self.search_edit.setAlignment(Qt.AlignCenter)
+        self.search_edit.setPlaceholderText("搜索")
+        toolbar.addWidget(self.search_edit)
+        layout.addLayout(toolbar)
+
+        bottom = QHBoxLayout()
+        bottom.addStretch()
+        self.btn_ok = QPushButton("确认")
+        self.btn_cancel = QPushButton("取消")
+        self.btn_cancel.setProperty("secondary", True)
+        bottom.addWidget(self.btn_ok)
+        bottom.addWidget(self.btn_cancel)
+        layout.addLayout(bottom)
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+        self.table.setSortingEnabled(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+
+        self._apps: list = []
+        self.search_edit.textChanged.connect(self._populate)
+        self.btn_refresh.clicked.connect(self._load)
+        self.btn_ok.clicked.connect(self._on_ok)
+        self.btn_cancel.clicked.connect(self.reject)
+        self.table.doubleClicked.connect(lambda *_: self._on_ok())
+
+        self._load()
+
+    def _load(self):
+        try:
+            self._apps = AppRepository.get_all_apps()
+        except Exception:
+            self._apps = []
+        self._populate()
+
+    def _populate(self, *_):
+        keywords = make_search_keywords(self.search_edit.text())
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(0)
+        rows = self._apps
+        if keywords:
+            rows = [a for a in rows
+                    if matches_search_keywords([a.exe_name, a.exe_path], keywords)]
+        self.table.setRowCount(len(rows))
+        for r, a in enumerate(rows):
+            name_item = QTableWidgetItem(a.exe_name)
+            name_item.setData(Qt.UserRole, a.exe_path)
+            name_item.setToolTip(a.exe_name)
+            path_item = QTableWidgetItem(a.exe_path)
+            path_item.setToolTip(a.exe_path)
+            last_item = QTableWidgetItem(a.last_start_at)
+            last_item.setData(Qt.UserRole, a.last_start_at_ts)
+            last_item.setToolTip(a.last_start_at)
+            self.table.setItem(r, 0, name_item)
+            self.table.setItem(r, 1, path_item)
+            self.table.setItem(r, 2, last_item)
+        self.table.setSortingEnabled(True)
+
+    def selected_app(self) -> Optional[AppInfo]:
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        exe_path = self.table.item(rows[0].row(), 0).data(Qt.UserRole)
+        return next((a for a in self._apps if a.exe_path == exe_path), None)
+
+    def _on_ok(self):
+        if self.selected_app() is None:
+            QMessageBox.warning(self, "提示", "请选择一个应用。")
+            return
+        self.accept()
+
+
 class AddSaveGameDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,10 +138,33 @@ class AddSaveGameDialog(QDialog):
         self.setMinimumWidth(460)
         form = QFormLayout(self)
 
+        self._linked_path = None
+        self._linked_name = ""
+        self._name_edited = False
+
+        # 1) 关联应用（可选）
+        app_row = QHBoxLayout()
+        self.app_edit = QLineEdit()
+        self.app_edit.setReadOnly(True)
+        self.app_edit.setPlaceholderText("（可选）选择关联应用")
+        btn_pick = QPushButton("选择...")
+        btn_pick.setFixedWidth(76)
+        btn_pick.clicked.connect(self._pick_app)
+        btn_clear = QPushButton("清除")
+        btn_clear.setFixedWidth(60)
+        btn_clear.clicked.connect(self._clear_app)
+        app_row.addWidget(self.app_edit, stretch=1)
+        app_row.addWidget(btn_pick)
+        app_row.addWidget(btn_clear)
+        form.addRow("关联应用：", app_row)
+
+        # 2) 名称（选择应用后预填应用名；用户手改后不再覆盖）
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("例如：某游戏")
+        self.name_edit.textEdited.connect(self._on_name_edited)
         form.addRow("名称：", self.name_edit)
 
+        # 3) 存档目录
         dir_row = QHBoxLayout()
         self.dir_edit = QLineEdit()
         self.dir_edit.setReadOnly(True)
@@ -51,19 +175,33 @@ class AddSaveGameDialog(QDialog):
         dir_row.addWidget(browse)
         form.addRow("存档目录：", dir_row)
 
-        self.app_combo = QComboBox()
-        self.app_combo.addItem("（不关联）", None)
-        try:
-            for a in AppRepository.get_all_apps():
-                self.app_combo.addItem(a.exe_name, a.exe_path)
-        except Exception:
-            pass
-        form.addRow("关联应用：", self.app_combo)
-
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_ok)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+
+    def _on_name_edited(self, _text):
+        self._name_edited = True
+
+    def _pick_app(self):
+        dlg = AppPickDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        app = dlg.selected_app()
+        if app is not None:
+            self._apply_app(app.exe_path, app.exe_name)
+
+    def _apply_app(self, exe_path, exe_name):
+        self._linked_path = exe_path
+        self._linked_name = exe_name
+        self.app_edit.setText(exe_name)
+        if not self._name_edited:
+            self.name_edit.setText(exe_name)
+
+    def _clear_app(self):
+        self._linked_path = None
+        self._linked_name = ""
+        self.app_edit.clear()
 
     def _browse(self):
         path = QFileDialog.getExistingDirectory(self, "选择存档目录", self.dir_edit.text() or "")
@@ -83,7 +221,7 @@ class AddSaveGameDialog(QDialog):
         return {
             "name": self.name_edit.text().strip(),
             "local_path": os.path.normpath(self.dir_edit.text().strip()),
-            "linked_app_path": self.app_combo.currentData(),
+            "linked_app_path": self._linked_path,
         }
 
 
