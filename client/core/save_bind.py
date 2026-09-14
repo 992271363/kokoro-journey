@@ -79,14 +79,18 @@ def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entrie
         if _same_path(e.local_path, local_path):
             return False, "该目录已被其它存档条目占用"
 
-    ok, versions = ss.list_versions(token, server_id)
-    if not ok:
-        return False, versions
-    target = next((v for v in versions if v.get("versionNumber") == latest), None)
-    if target is None:
-        return False, "未找到云端最新版本"
+    # 优先用 list_games 已带回的最新版本 id，省掉一次 list_versions 请求
+    target_id = cloud_game.get("latestVersionId")
+    if target_id is None:
+        ok, versions = ss.list_versions(token, server_id)
+        if not ok:
+            return False, versions
+        target = next((v for v in versions if v.get("versionNumber") == latest), None)
+        if target is None:
+            return False, "未找到云端最新版本"
+        target_id = target["id"]
 
-    ok, tmp = ss.prepare_download(token, server_id, target["id"], local_path,
+    ok, tmp = ss.prepare_download(token, server_id, target_id, local_path,
                                   progress_cb=progress_cb)
     if not ok:
         return False, tmp

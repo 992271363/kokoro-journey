@@ -69,13 +69,17 @@ def sync_entry_on_login(token: str, entry, cloud_game) -> Tuple[bool, str]:
         return True, f"已上传 v{res['version']}"
 
     if status == ss.STATUS_CLOUD:
-        ok, versions = ss.list_versions(token, entry.server_id)
-        if not ok:
-            return False, versions
-        target = next((v for v in versions if v["versionNumber"] == latest), None)
-        if target is None:
-            return False, "未找到云端版本"
-        ok, tmp = ss.prepare_download(token, entry.server_id, target["id"], entry.local_path)
+        # 优先用 list_games 已带回的最新版本 id，省掉一次 list_versions 请求
+        target_id = cloud_game.get("latestVersionId") if cloud_game else None
+        if target_id is None or (cloud_game.get("latestVersion") != latest):
+            ok, versions = ss.list_versions(token, entry.server_id)
+            if not ok:
+                return False, versions
+            target = next((v for v in versions if v["versionNumber"] == latest), None)
+            if target is None:
+                return False, "未找到云端版本"
+            target_id = target["id"]
+        ok, tmp = ss.prepare_download(token, entry.server_id, target_id, entry.local_path)
         if not ok:
             return False, tmp
         ok2, backup = ss.apply_download(tmp, entry.local_path)

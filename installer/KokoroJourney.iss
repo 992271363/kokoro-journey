@@ -67,6 +67,191 @@ var
   UninstallConfigForm: TForm;
   KeepDataCheckbox: TNewCheckBox;
   WarnLabel: TNewStaticText;
+  // ---- 已安装检测（升级安装） ----
+  GUpgradeDir: String;        // 注册表检测到的安装目录
+  GUpgradeVer: String;        // 注册表检测到的旧版本号
+  GFoundFromRegistry: Boolean;
+  GTier2Confirmed: Boolean;   // 目录扫描命中后用户已确认
+  GNewDirConfirmed: Boolean;  // 注册表命中但改到新目录，用户已确认
+
+// ============================================================
+// 已安装检测
+//   Tier1：注册表 HKCU / HKLM（含 WOW6432Node）的卸载信息 InstallLocation
+//   Tier2：Tier1 未命中时，在用户所选目录下最多递归 3 层寻找特征文件
+//  特征文件：kokoro-journey.exe 或 unins000.exe 任一命中即视为已安装
+// ============================================================
+
+function ReadInstallFromKey(const RootKey: Integer; const SubKey: String;
+                            var Dir, Ver: String): Boolean;
+begin
+  Dir := '';
+  Ver := '';
+  Result := RegQueryStringValue(RootKey, SubKey, 'InstallLocation', Dir)
+            and (Dir <> '') and DirExists(Dir);
+  if Result then
+  begin
+    if not RegQueryStringValue(RootKey, SubKey, 'DisplayVersion', Ver) then
+      Ver := '';
+  end;
+end;
+
+function DetectInstalledFromRegistry(): Boolean;
+var
+  Base, Base32: String;
+begin
+  Base := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
+  Base32 := 'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
+
+  Result := True;
+  if ReadInstallFromKey(HKCU, Base, GUpgradeDir, GUpgradeVer) then Exit;
+  if ReadInstallFromKey(HKCU, Base32, GUpgradeDir, GUpgradeVer) then Exit;
+  if ReadInstallFromKey(HKLM, Base, GUpgradeDir, GUpgradeVer) then Exit;
+  if ReadInstallFromKey(HKLM, Base32, GUpgradeDir, GUpgradeVer) then Exit;
+  Result := False;
+end;
+
+function IsKokoroInstallDir(const Dir: String): Boolean;
+begin
+  Result := FileExists(AddBackslash(Dir) + 'kokoro-journey.exe')
+         or FileExists(AddBackslash(Dir) + 'unins000.exe');
+end;
+
+function FindInstallMarker(const Dir: String; Depth: Integer; var Found: String): Boolean;
+var
+  FindRec: TFindRec;
+  Sub: String;
+begin
+  Result := False;
+  if Depth > 3 then Exit;
+  if IsKokoroInstallDir(Dir) then
+  begin
+    Found := Dir;
+    Result := True;
+    Exit;
+  end;
+  if not DirExists(Dir) then Exit;
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          Sub := AddBackslash(Dir) + FindRec.Name;
+          if DirExists(Sub) then
+          begin
+            if FindInstallMarker(Sub, Depth + 1, Found) then
+            begin
+              Result := True;
+              Exit;
+            end;
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  GUpgradeDir := '';
+  GUpgradeVer := '';
+  GTier2Confirmed := False;
+  GNewDirConfirmed := False;
+
+  GFoundFromRegistry := DetectInstalledFromRegistry();
+  if GFoundFromRegistry then
+  begin
+    if GUpgradeVer = '' then
+      GUpgradeVer := '（版本未知）';
+    Log('已安装检测：注册表命中 -> ' + GUpgradeDir + ' (' + GUpgradeVer + ')');
+  end
+  else
+    Log('已安装检测：注册表未命中，将在目录选择后做目录扫描。');
+
+  Result := True;
+end;
+
+procedure InitializeWizard();
+begin
+  if GFoundFromRegistry then
+  begin
+    // 预填旧目录，但保留目录选择页
+    WizardForm.DirEdit.Text := GUpgradeDir;
+    // 欢迎页显示旧版本
+    WizardForm.WelcomeLabel2.Caption :=
+      WizardForm.WelcomeLabel2.Caption + #13#10#13#10 +
+      '检测到已安装版本 ' + GUpgradeVer + '，将进行升级安装。';
+  end;
+end;
+
+// 统一的检测确认：返回 False 表示用户选择不继续。
+// 正常 UI 下由 NextButtonClick 调用；静默安装下 NextButtonClick 不触发，
+// 由 PrepareToInstall 调用（SuppressibleMsgBox 在静默时取默认 Yes，不阻塞）。
+function ConfirmInstallTarget(): Boolean;
+var
+  ChosenDir, Found: String;
+begin
+  Result := True;
+  ChosenDir := WizardDirValue();
+
+  if GFoundFromRegistry then
+  begin
+    // 注册表命中但用户改到别处：明确提示旧安装会保留
+    if (not GNewDirConfirmed)
+       and (CompareText(RemoveBackslashUnlessRoot(ChosenDir),
+                        RemoveBackslashUnlessRoot(GUpgradeDir)) <> 0) then
+    begin
+      Log('已安装检测：注册表命中(' + GUpgradeDir + ')，但目标改为 ' + ChosenDir);
+      if SuppressibleMsgBox(
+           '检测到旧安装：' + GUpgradeDir + #13#10#13#10 +
+           '但你选择了新目录：' + ChosenDir + #13#10#13#10 +
+           '继续将把程序安装到新目录，旧安装会保留（可能同时存在两份）。是否继续？',
+           mbConfirmation, MB_YESNO, IDYES) = IDYES then
+        GNewDirConfirmed := True
+      else
+      begin
+        Result := False;
+        Exit;
+      end;
+    end;
+  end
+  else if not GTier2Confirmed then
+  begin
+    // 无注册表信息：在所选目录下最多递归 3 层扫描特征文件
+    Found := '';
+    if FindInstallMarker(ChosenDir, 0, Found) then
+    begin
+      Log('已安装检测：目录扫描命中 -> ' + Found);
+      if SuppressibleMsgBox(
+           '在所选目录下检测到已安装的 Kokoro Journey：' + #13#10 + Found + #13#10#13#10 +
+           '是否按覆盖升级继续安装？',
+           mbConfirmation, MB_YESNO, IDYES) = IDYES then
+        GTier2Confirmed := True
+      else
+      begin
+        Result := False;
+        Exit;
+      end;
+    end;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if CurPageID <> wpSelectDir then Exit;
+  Result := ConfirmInstallTarget();
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  NeedsRestart := False;
+  Result := '';
+  if not ConfirmInstallTarget() then
+    Result := '安装已取消：目标目录下检测到已有安装。';
+end;
 
 function GetDataDirFromStateFile: String;
 var

@@ -1,8 +1,10 @@
 """云存档接口测试（SQLite + TestClient，无需 MariaDB；文件落到临时 SAVES_DIR）。"""
 import hashlib
+import io
 import json
 import os
 import sys
+import zipfile
 from pathlib import Path
 
 BACKEND_API = Path(__file__).resolve().parents[1] / "api"
@@ -161,6 +163,23 @@ check("批量返回 uploaded", sorted(r.json().get("uploaded") or []) == ["save/
 check("v3 提交 200", client.post(f"/saves/games/{game_id}/versions/{vid3}/commit", headers=H).status_code == 200)
 r = client.get(f"/saves/games/{game_id}/versions/{vid3}/files/download", params={"path": "save/d.sav"}, headers=H)
 check("批量上传内容一致", r.status_code == 200 and r.content == content_d)
+
+# --- 批量下载（内存 zip）---
+r = client.post(f"/saves/games/{game_id}/versions/{vid3}/files-batch-download",
+                json={"paths": ["save/c.sav", "save/d.sav"]}, headers=H)
+check("批量下载 200", r.status_code == 200)
+zipped = {}
+if r.status_code == 200:
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        for name in zf.namelist():
+            zipped[name] = zf.read(name)
+check("批量下载内容正确",
+      zipped.get("save/c.sav") == content_c and zipped.get("save/d.sav") == content_d)
+
+# --- list_games 带回 latestVersionId ---
+r = client.get("/saves/games", headers=H)
+g = next((x for x in r.json() if x["id"] == game_id), None)
+check("list_games 含 latestVersionId", bool(g) and g.get("latestVersionId") == vid3)
 
 # --- 单设备接管 ---
 r = client.post("/saves/device/claim", headers={"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"})

@@ -531,24 +531,25 @@ class PersonalCenter(QDialog):
         if not latest:
             QMessageBox.information(self, "提示", "云端暂无版本。")
             return
-        self._download_version(entry, latest)
+        # 用 list_games 带回的 latestVersionId，省掉一次 list_versions 请求
+        self._download_version(entry, latest, cloud.get("latestVersionId"))
 
-    def _download_version(self, entry, version_number):
-        cloud = self._cloud.get(entry.server_id)
-        # 需要 version_id：从版本列表获取
-        ok, versions = ss.list_versions(self._token, entry.server_id)
-        if not ok:
-            QMessageBox.warning(self, "提示", ss_http_msg(versions))
-            return
-        target = next((v for v in versions if v["versionNumber"] == version_number), None)
-        if target is None:
-            QMessageBox.warning(self, "提示", "未找到该版本。")
-            return
+    def _download_version(self, entry, version_number, version_id=None):
+        if version_id is None:
+            ok, versions = ss.list_versions(self._token, entry.server_id)
+            if not ok:
+                QMessageBox.warning(self, "提示", ss_http_msg(versions))
+                return
+            target = next((v for v in versions if v["versionNumber"] == version_number), None)
+            if target is None:
+                QMessageBox.warning(self, "提示", "未找到该版本。")
+                return
+            version_id = target["id"]
         self._busy(True, "正在下载...")
-        self._pending_download = (entry, target["versionNumber"])
+        self._pending_download = (entry, version_number)
         self._run_worker(
             ss.prepare_download, self._on_download_done,
-            self._token, entry.server_id, target["id"], entry.local_path)
+            self._token, entry.server_id, version_id, entry.local_path)
 
     def _on_download_done(self, ok, res):
         self._busy(False)
@@ -588,7 +589,7 @@ class PersonalCenter(QDialog):
             return
         dlg = CloudVersionsDialog(
             self, self._token, entry.server_id,
-            on_download=lambda v: self._download_version(entry, v["versionNumber"]))
+            on_download=lambda v: self._download_version(entry, v["versionNumber"], v.get("id")))
         dlg.exec()
 
     def _delete_remote(self):

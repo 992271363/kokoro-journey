@@ -1,9 +1,12 @@
 """云存档客户端逻辑测试（离线，不联网）：清单/指纹/校验/安全路径/状态/落盘。"""
 import _common  # noqa: F401
 
+import hashlib
+import io
 import os
 import sys
 import tempfile
+import zipfile
 
 import core.save_sync as ss
 
@@ -303,6 +306,85 @@ nb = _NoBatchFake()
 ss.get_session = lambda: nb
 ok_nb, _res_nb = ss.upload_game("tok", d, "G", server_id=1)
 check("批量回退: 无批量接口时逐文件上传", ok_nb and nb.batches == 0 and nb.single == 2)
+
+
+# --- 下载：增量复用 + 批量 zip + 404 回退 ---
+class _RespBytes:
+    def __init__(self, status_code, content=b"", payload=None):
+        self.status_code = status_code
+        self.content = content
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+    def iter_content(self, n):
+        for i in range(0, len(self.content), n):
+            yield self.content[i:i + n]
+
+
+def _zip_bytes(files: dict) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+_DL_FILES = {"b.sav": b"BBB", "c.sav": b"CCC"}
+
+
+class _DownloadFake:
+    def __init__(self, manifest, batch_status=200):
+        self.manifest = manifest
+        self.batch_status = batch_status
+        self.batch_paths = None
+        self.single_calls = []
+
+    def get(self, url, **kw):
+        if url.endswith("/files"):
+            return _RespBytes(200, payload=self.manifest)
+        if url.endswith("/files/download"):
+            rel = (kw.get("params") or {}).get("path")
+            self.single_calls.append(rel)
+            return _RespBytes(200, content=_DL_FILES.get(rel, b""))
+        return _RespBytes(200)
+
+    def post(self, url, **kw):
+        if url.endswith("/files-batch-download"):
+            self.batch_paths = (kw.get("json") or {}).get("paths")
+            return _RespBytes(self.batch_status, content=_zip_bytes(_DL_FILES))
+        return _RespBytes(200)
+
+
+dl_target = os.path.join(base, "dl_target")
+os.makedirs(dl_target)
+with open(os.path.join(dl_target, "a.sav"), "wb") as fp:
+    fp.write(b"AAA")
+_manifest_dl = [
+    {"path": "a.sav", "size": 3, "sha256": hashlib.sha256(b"AAA").hexdigest(), "mtimeNs": None},
+    {"path": "b.sav", "size": 3, "sha256": hashlib.sha256(b"BBB").hexdigest(), "mtimeNs": None},
+    {"path": "c.sav", "size": 3, "sha256": hashlib.sha256(b"CCC").hexdigest(), "mtimeNs": None},
+]
+
+dlf = _DownloadFake(_manifest_dl)
+ss.get_session = lambda: dlf
+ok_dl, tmp_dl = ss.prepare_download("tok", 1, 1, dl_target)
+check("下载: 批量成功", ok_dl)
+check("下载: 只批量请求变化文件", sorted(dlf.batch_paths or []) == ["b.sav", "c.sav"])
+check("下载: 增量复用未变文件", os.path.isfile(os.path.join(tmp_dl, "a.sav")))
+check("下载: 复用内容一致",
+      open(os.path.join(tmp_dl, "a.sav"), "rb").read() == b"AAA")
+check("下载: 批量内容一致",
+      open(os.path.join(tmp_dl, "b.sav"), "rb").read() == b"BBB"
+      and open(os.path.join(tmp_dl, "c.sav"), "rb").read() == b"CCC")
+ss.discard_download(tmp_dl)
+
+dlf2 = _DownloadFake(_manifest_dl, batch_status=404)
+ss.get_session = lambda: dlf2
+ok_dl2, tmp_dl2 = ss.prepare_download("tok", 1, 1, dl_target)
+check("下载: 无批量接口回退逐文件", ok_dl2 and sorted(dlf2.single_calls) == ["b.sav", "c.sav"])
+ss.discard_download(tmp_dl2)
 
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

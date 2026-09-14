@@ -121,12 +121,17 @@ class SaveGameRename(CamelAliasModel):
     name: str
 
 
+class SaveBatchDownloadRequest(CamelAliasModel):
+    paths: List[str] = []
+
+
 class SaveGameView(CamelAliasModel):
     id: int
     name: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     latest_version: Optional[int] = None
+    latest_version_id: Optional[int] = None
     latest_total_size: Optional[int] = None
     latest_file_count: Optional[int] = None
     latest_created_at: Optional[datetime] = None

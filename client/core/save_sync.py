@@ -8,11 +8,13 @@ from __future__ import annotations
 import concurrent.futures as _futures
 import datetime
 import hashlib
+import io
 import json
 import os
 import shutil
 import threading
 import time
+import zipfile
 from typing import List, Optional, Tuple
 
 import requests
@@ -420,52 +422,188 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
                   "fingerprint": tree_fingerprint(local_dir)}
 
 
+def _set_mtime(path: str, mtime_ns) -> None:
+    if mtime_ns:
+        try:
+            os.utime(path, ns=(mtime_ns, mtime_ns))
+        except OSError:
+            pass
+
+
+def _reuse_local_file(src_dir: str, tmp_dir: str, f: dict) -> bool:
+    """本地已有且大小/sha256 一致的文件，硬链接/复制进临时目录，避免重复下载。"""
+    try:
+        src = safe_join_local(src_dir, f["path"])
+    except ValueError:
+        return False
+    if not os.path.isfile(src):
+        return False
+    try:
+        if os.path.getsize(src) != int(f["size"]):
+            return False
+        if f.get("sha256") and sha256_file(src) != f["sha256"]:
+            return False
+    except OSError:
+        return False
+    try:
+        dst = safe_join_local(tmp_dir, f["path"])
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+    except (OSError, ValueError):
+        return False
+    _set_mtime(dst, f.get("mtimeNs"))
+    return True
+
+
+def _extract_download_zip(content: bytes, tmp_dir: str, entry_by_rel: dict) -> None:
+    """把批量下载的 zip 解压到临时目录，逐文件校验大小/sha256（防 zip-slip）。"""
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            rel = info.filename.replace("\\", "/")
+            entry = entry_by_rel.get(rel)
+            if entry is None:
+                raise ValueError(f"返回了清单外的文件: {rel}")
+            dest = safe_join_local(tmp_dir, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with zf.open(info) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out, 1024 * 1024)
+            if os.path.getsize(dest) != int(entry["size"]):
+                raise ValueError(f"大小不符: {rel}")
+            if sha256_file(dest) != entry["sha256"]:
+                raise ValueError(f"校验失败: {rel}")
+            _set_mtime(dest, entry.get("mtimeNs"))
+
+
 def prepare_download(token: str, server_id: int, version_id: int, target_dir: str,
                      progress_cb=None) -> Tuple[bool, str]:
-    """下载云端版本到 target_dir 的同级临时目录并逐个 sha256 校验。
+    """下载云端版本到 target_dir 的同级临时目录。
 
-    成功返回 (True, 临时目录路径)；失败返回 (False, 错误)。
+    与上传对齐：本地未变文件增量复用 + 批量 zip（一次请求多文件）+ 并发 + 重试；
+    逐文件校验 sha256 后再返回临时目录，失败清理。成功返回 (True, 临时目录路径)。
     """
     ok, files = list_version_files(token, server_id, version_id)
     if not ok:
         return False, files
+    if not isinstance(files, list):
+        return False, "版本文件清单无效"
 
     tmp = target_dir.rstrip("\\/") + ".__download_tmp__"
     discard_download(tmp)
     os.makedirs(tmp, exist_ok=True)
 
     total = len(files)
-    for i, f in enumerate(files, 1):
+    progress_lock = threading.Lock()
+    done = {"n": 0}
+
+    def _tick(k):
+        with progress_lock:
+            done["n"] += k
+            if progress_cb:
+                progress_cb(done["n"], total, "下载中")
+
+    # 1) 增量：本地已存在且一致的文件直接复用，不重新下载
+    to_fetch = []
+    for f in files:
+        if os.path.isdir(target_dir) and _reuse_local_file(target_dir, tmp, f):
+            _tick(1)
+        else:
+            to_fetch.append(f)
+
+    entry_by_rel = {f["path"]: f for f in files}
+    base = f"{API_URL}/saves/games/{server_id}/versions/{version_id}"
+
+    def _dl_single(f):
         rel = f["path"]
+        def _do():
+            return get_session().get(f"{base}/files/download", params={"path": rel},
+                                     headers=_headers(token), stream=True, timeout=UPLOAD_TIMEOUT)
+        try:
+            r = _send(_do)
+        except requests.exceptions.RequestException as e:
+            return "error", _friendly_error(e)
+        if r.status_code == 409:
+            return "taken", None
+        if r.status_code >= 400:
+            return "error", _detail(r)
         try:
             dest = safe_join_local(tmp, rel)
-        except ValueError as e:
-            discard_download(tmp)
-            return False, str(e)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-        url = f"{API_URL}/saves/games/{server_id}/versions/{version_id}/files/download"
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "wb") as out:
+                for chunk in r.iter_content(1024 * 1024):
+                    out.write(chunk)
+            if os.path.getsize(dest) != int(f["size"]):
+                return "error", f"大小不符: {rel}"
+            if sha256_file(dest) != f["sha256"]:
+                return "error", f"校验失败: {rel}"
+            _set_mtime(dest, f.get("mtimeNs"))
+        except (OSError, ValueError) as e:
+            return "error", str(e)
+        return "ok", None
+
+    def _dl_batch(batch):
+        paths = [f["path"] for f in batch]
+        def _do():
+            return get_session().post(f"{base}/files-batch-download", json={"paths": paths},
+                                      headers=_headers(token), timeout=UPLOAD_TIMEOUT)
         try:
-            r = _send(lambda: get_session().get(url, params={"path": rel}, headers=_headers(token),
-                                                stream=True, timeout=UPLOAD_TIMEOUT))
+            r = _send(_do)
         except requests.exceptions.RequestException as e:
-            discard_download(tmp)
-            return False, _friendly_error(e)
+            return "error", _friendly_error(e)
+        if r.status_code == 404:
+            # 旧服务端无批量接口：回退逐文件
+            for f in batch:
+                kind, msg = _dl_single(f)
+                if kind != "ok":
+                    return kind, msg
+            return "ok", None
         if r.status_code == 409:
-            discard_download(tmp)
-            return False, TAKEN_OVER
+            return "taken", None
         if r.status_code >= 400:
-            discard_download(tmp)
-            return False, _detail(r)
-        with open(dest, "wb") as out:
-            for chunk in r.iter_content(1024 * 1024):
-                out.write(chunk)
-        if sha256_file(dest) != f["sha256"]:
-            discard_download(tmp)
-            return False, f"校验失败: {rel}"
-        if f.get("mtimeNs"):
-            os.utime(dest, ns=(f["mtimeNs"], f["mtimeNs"]))
-        if progress_cb:
-            progress_cb(i, total, "下载中")
+            return "error", _detail(r)
+        try:
+            _extract_download_zip(r.content, tmp, entry_by_rel)
+        except (ValueError, OSError, zipfile.BadZipFile) as e:
+            return "error", str(e)
+        return "ok", None
+
+    def _run(batch):
+        try:
+            kind, msg = _dl_single(batch[0]) if len(batch) == 1 else _dl_batch(batch)
+        except Exception as e:  # noqa: BLE001 - 兜底，避免线程内异常逃逸
+            kind, msg = "error", _friendly_error(e)
+        return kind, msg, len(batch)
+
+    if to_fetch:
+        batches: List[List[dict]] = []
+        cur: List[dict] = []
+        cur_size = 0
+        for f in to_fetch:
+            size = int(f["size"])
+            if cur and cur_size + size > BATCH_MAX_BYTES:
+                batches.append(cur)
+                cur, cur_size = [], 0
+            cur.append(f)
+            cur_size += size
+        if cur:
+            batches.append(cur)
+
+        with _futures.ThreadPoolExecutor(max_workers=MAX_PARALLEL_BATCHES) as ex:
+            future_list = [ex.submit(_run, b) for b in batches]
+            for fut in _futures.as_completed(future_list):
+                kind, msg, count = fut.result()
+                if kind == "taken":
+                    discard_download(tmp)
+                    return False, TAKEN_OVER
+                if kind == "error":
+                    discard_download(tmp)
+                    return False, msg
+                _tick(count)
+
     return True, tmp
 
 

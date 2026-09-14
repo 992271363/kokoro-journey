@@ -7,13 +7,15 @@
 """
 from __future__ import annotations
 
+import io
 import json
 import os
+import zipfile
 from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -80,6 +82,7 @@ def _game_view(game: models.ServerSaveGame, latest: Optional[models.ServerSaveVe
         "created_at": game.created_at,
         "updated_at": game.updated_at,
         "latest_version": latest.version_number if latest else None,
+        "latest_version_id": latest.id if latest else None,
         "latest_total_size": latest.total_size if latest else None,
         "latest_file_count": latest.file_count if latest else None,
         "latest_created_at": latest.created_at if latest else None,
@@ -475,6 +478,50 @@ def download_version_file(
         raise HTTPException(status_code=404, detail="文件不存在")
     return FileResponse(full, media_type="application/octet-stream",
                         filename=os.path.basename(rel))
+
+
+@router.post("/games/{game_id}/versions/{version_id}/files-batch-download")
+def download_version_files_batch(
+    game_id: int,
+    version_id: int,
+    payload: schemas.SaveBatchDownloadRequest,
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """一次请求下载多个文件：内存 zip（仅传输、不落盘，不改文件级存储）。
+
+    paths 为空时返回整版；客户端按体积分批调用，单次内容很小。
+    """
+    _get_own_game(db, current_user, game_id)
+    _require_device(db, current_user, x_device_id)
+    ver = _get_committed_version(db, game_id, version_id)
+
+    rows = db.query(models.ServerSaveFile).filter_by(version_id=ver.id).all()
+    entry_by_rel = {r.relative_path: r for r in rows}
+
+    if payload.paths:
+        wanted: list[str] = []
+        for p in payload.paths:
+            try:
+                rel = save_storage.safe_relpath(p)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            if rel not in entry_by_rel:
+                raise HTTPException(status_code=400, detail=f"文件不在清单中: {rel}")
+            wanted.append(rel)
+    else:
+        wanted = sorted(entry_by_rel.keys())
+
+    vdir = save_storage.version_dir(current_user.id, game_id, ver.version_number)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+        for rel in wanted:
+            full = save_storage.safe_join(vdir, *rel.split("/"))
+            if not os.path.isfile(full):
+                raise HTTPException(status_code=404, detail=f"文件不存在: {rel}")
+            zf.write(full, arcname=rel)
+    return Response(content=buf.getvalue(), media_type="application/zip")
 
 
 @router.delete("/games/{game_id}/versions/{version_id}")
