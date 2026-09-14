@@ -56,9 +56,10 @@ if (-not $SkipBuild) {
                 --file-version=$FileVersion `
                 --product-version=$FileVersion `
                 --include-data-dir=icons=icons `
-                --include-data-file=.env.example=.env.example `
                 --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\sqlite3.dll=sqlite3.dll" `
                 --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\ffi.dll=ffi.dll" `
+                --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\libssl-3-x64.dll=libssl-3-x64.dll" `
+                --include-data-files="E:\program\ANACONDA\envs\bishe\Library\bin\libcrypto-3-x64.dll=libcrypto-3-x64.dll" `
                 main.py
             if ($LASTEXITCODE -ne 0) { throw "主程序编译失败" }
         } finally {

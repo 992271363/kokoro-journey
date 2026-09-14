@@ -5,17 +5,17 @@ import requests
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
-from util.path import _settings_dir
 from core.http_client import get_session
 
 if getattr(sys, "frozen", False):
-    _user_env = Path(_settings_dir()) / ".env"
-    _install_env = Path(sys.executable).resolve().parent / ".env"
-    _env_path = _user_env if _user_env.exists() else _install_env
+    # 冻结版唯一正式配置：安装目录下的 .env。
+    # 不再读取/生成 %LOCALAPPDATA%\Kokoro Journey\.env，避免旧的错误配置覆盖随包配置。
+    _env_path = Path(sys.executable).resolve().parent / ".env"
 else:
     _env_path = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(_env_path)
 BASE_URL = os.getenv("BASE_URL", "http://127.0.0.1").rstrip('/')
+print(f"[Config] BASE_URL={BASE_URL} (env={_env_path if _env_path.exists() else '未找到，使用默认'})")
 API_URL = f"{BASE_URL}/api"
 
 #定义一个清晰的登录状态枚举
