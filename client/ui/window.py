@@ -128,6 +128,7 @@ class GroupChipButton(QPushButton):
 from ui.dialogs import AppDetailDialog, ClosingDialog, AddAppDialog
 from ui.login import LoginDialog
 from ui.stats import StatsDialog
+from ui.analysis import AnalysisDialog
 from core.monitor import retry_failed_sessions, get_failed_queue_count
 
 
@@ -306,6 +307,12 @@ class Mywindow(QMainWindow):
         toolbar.addWidget(self.btn_stats)
         toolbar.addWidget(self._add_spacer(3))
 
+        self.btn_analysis = QPushButton("分析")
+        self.btn_analysis.setToolTip("时段分布 / 热力图 / 画像 / 对比")
+        self.btn_analysis.setFixedHeight(48)
+        toolbar.addWidget(self.btn_analysis)
+        toolbar.addWidget(self._add_spacer(3))
+
         self.user_show = QLabel("未登录")
         self.user_show.setFixedHeight(48)
         self.user_show.setAlignment(Qt.AlignCenter)
@@ -352,6 +359,10 @@ class Mywindow(QMainWindow):
         a = QAction("统计", self)
         a.setShortcut(QKeySequence("Ctrl+T"))
         a.triggered.connect(self.open_stats)
+        vm.addAction(a)
+        a = QAction("分析", self)
+        a.setShortcut(QKeySequence("Ctrl+Shift+T"))
+        a.triggered.connect(self.open_analysis)
         vm.addAction(a)
         a = QAction("分组管理…", self)
         a.triggered.connect(self._open_group_dialog)
@@ -476,6 +487,7 @@ class Mywindow(QMainWindow):
         self.login_action.triggered.connect(self.open_login_dialog)
         self.logout_action.triggered.connect(self._logout)
         self.btn_stats.clicked.connect(self.open_stats)
+        self.btn_analysis.clicked.connect(self.open_analysis)
 
         # ---- 运行统计 ----
         self._app_start_time = datetime.datetime.now()
@@ -535,6 +547,8 @@ class Mywindow(QMainWindow):
             self.pushButton_procs.setVisible(show_secondary)
         if hasattr(self, "btn_stats"):
             self.btn_stats.setVisible(show_secondary)
+        if hasattr(self, "btn_analysis"):
+            self.btn_analysis.setVisible(show_secondary)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1535,6 +1549,9 @@ class Mywindow(QMainWindow):
 
     def open_stats(self):
         StatsDialog(parent=self).exec()
+
+    def open_analysis(self):
+        AnalysisDialog(parent=self).exec()
 
     def run_immediate_sync(self):
         if not self.token:

@@ -80,6 +80,11 @@ def clear_distinct_cache() -> None:
     """数据变化（会话入库、导入、重建）后调用，使下一次统计重新计算。"""
     _distinct_cache["ts"] = 0.0
     _distinct_cache["data"] = None
+    try:
+        from core.analysis import clear_analysis_cache
+        clear_analysis_cache()
+    except Exception:
+        pass
 
 
 def _clip_into_day_buckets(
