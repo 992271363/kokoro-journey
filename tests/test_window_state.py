@@ -36,6 +36,11 @@ geo = s.get("windowGeometry")
 check("保存普通几何", geo == {"x": 150, "y": 110, "width": 1020, "height": 580})
 check("保存普通状态", s.get("windowState") == "normal")
 
+# --- 状态列表头：留空（靠图标），带 tooltip ---
+hdr0 = win.tableWidget.horizontalHeaderItem(0)
+check("状态列表头留空", hdr0 is not None and hdr0.text() == "")
+check("状态列表头带 tooltip", hdr0 is not None and bool(hdr0.toolTip()))
+
 # --- 保存：最大化时记录“还原后”几何 ---
 win.showMaximized()
 app.processEvents()

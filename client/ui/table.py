@@ -202,13 +202,16 @@ class AppTableManager(QObject):
         self._adjust_name_column_width()
 
     def _setup_table(self):
-        columns = ["状态", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
+        columns = ["", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
         self.table.setColumnCount(len(columns))
 
         header = StyledHeaderView(Qt.Horizontal, self.table)
         self._header = header
         self.table.setHorizontalHeader(header)
         self.table.setHorizontalHeaderLabels(columns)
+        status_header = self.table.horizontalHeaderItem(0)
+        if status_header is not None:
+            status_header.setToolTip("状态：未运行 / 未监视 / 路径不存在")
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
