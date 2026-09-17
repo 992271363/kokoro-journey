@@ -34,6 +34,19 @@ from ui.personal_center import PersonalCenter, CloudGamesDialog  # noqa: E402
 # 空本地
 dlg = PersonalCenter(None, "token", "tester")
 check("空列表无行", dlg.table.rowCount() == 0)
+
+# 文案对齐与 tooltip
+check("按钮: 从云端导入…", dlg.btn_from_cloud.text() == "从云端导入…")
+check("按钮: 下载到本地(无省略号)", dlg.btn_download.text() == "下载到本地")
+check("按钮: 解除云端关联", dlg.btn_unbind.text() == "解除云端关联")
+check("按钮: 新建目录", dlg.btn_add.text() == "新建目录")
+check("按钮: 删除目录", dlg.btn_del_local.text() == "删除目录")
+_btns = (dlg.btn_from_cloud, dlg.btn_add, dlg.btn_upload, dlg.btn_download,
+         dlg.btn_view, dlg.btn_unbind, dlg.btn_del_remote, dlg.btn_del_local)
+check("8 个按钮均有 tooltip", all(b.toolTip() for b in _btns))
+check("表头用语对齐",
+      [dlg.table.horizontalHeaderItem(c).text() for c in range(5)]
+      == ["名称", "存档目录", "云端版本", "状态", "关联应用"])
 dlg.close()
 
 # 云端弹窗：未关联

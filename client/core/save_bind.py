@@ -1,8 +1,8 @@
 """换机/重装闭环逻辑（不含 UI）。
 
 - classify_cloud_binding：判断某云端游戏与本地条目的关系
-- cloud_game_state：判断绑定条目的云端状态（已删除 / 暂无版本 / 正常）
-- download_cloud_game_to：选云端游戏 -> 下最新版本 -> 应用到本地目录 -> 创建/绑定本地条目
+- cloud_game_state：判断关联条目的云端状态（已删除 / 暂无版本 / 正常）
+- download_cloud_game_to：选云端游戏 -> 下最新版本 -> 应用到本地目录 -> 创建/关联本地条目
 
 不涉及去重/悬浮窗/差异查看；不改动 P1/P2/P3 行为。
 """
@@ -14,11 +14,11 @@ from typing import Optional, Tuple
 from db.repository import AppRepository
 from core import save_sync as ss
 
-# 绑定关系
-BOUND_SAME = "bound_same"      # 本地已有条目绑定到该云端游戏
+# 关联关系
+BOUND_SAME = "bound_same"      # 本地已有条目关联到该云端游戏
 NEW = "new"                    # 本地没有该游戏
-NAME_UNBOUND = "name_unbound"  # 本地有同名但未绑定
-NAME_OTHER = "name_other"      # 本地有同名但绑定到别的云端游戏（异常）
+NAME_UNBOUND = "name_unbound"  # 本地有同名但未关联
+NAME_OTHER = "name_other"      # 本地有同名但关联到别的云端游戏（异常）
 
 # 云端状态
 STATE_OK = "ok"
@@ -58,7 +58,7 @@ def _same_path(a: str, b: str) -> bool:
 def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entries,
                            bind_entry_id: Optional[int] = None,
                            progress_cb=None) -> Tuple[bool, object]:
-    """下载云端最新版本到 local_path，并创建/绑定本地条目。
+    """下载云端最新版本到 local_path，并创建/关联本地条目。
 
     返回 (True, {"local_id","server_id","version","fingerprint","backup"}) 或 (False, 错误)。
     """
@@ -72,7 +72,7 @@ def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entrie
     server_id = cloud_game["id"]
     latest = cloud_game["latestVersion"]
 
-    # 目录占用检查（跳过本游戏自身已绑定的条目 / 正在绑定的条目）
+    # 目录占用检查（跳过本游戏自身已关联的条目 / 正在关联的条目）
     for e in entries:
         if e.server_id == server_id or (bind_entry_id is not None and e.id == bind_entry_id):
             continue
@@ -111,7 +111,7 @@ def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entrie
 
     if bind_entry_id is not None:
         if not AppRepository.bind_save_game_to_server(bind_entry_id, server_id, latest, fingerprint):
-            return False, "绑定本地条目失败"
+            return False, "关联本地条目失败"
         local_id = bind_entry_id
     else:
         bound = next((e for e in entries if e.server_id == server_id), None)

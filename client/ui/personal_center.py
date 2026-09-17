@@ -26,7 +26,7 @@ STATUS_TEXT = {
     ss.STATUS_LOCAL: "本地有改动",
     ss.STATUS_CLOUD: "云端有新版本",
     ss.STATUS_CONFLICT: "冲突",
-    ss.STATUS_NOT_SYNCED: "尚未上传",
+    ss.STATUS_NOT_SYNCED: "尚未上传云端",
     sb.STATE_DELETED: "云端已删除",
     sb.STATE_NO_VERSION: "云端暂无版本",
 }
@@ -134,7 +134,7 @@ class AppPickDialog(QDialog):
 class AddSaveGameDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("新增云存档")
+        self.setWindowTitle("新建本地存档条目")
         self.setMinimumWidth(460)
         form = QFormLayout(self)
 
@@ -249,7 +249,7 @@ class CloudVersionsDialog(QDialog):
 
         row = QHBoxLayout()
         row.addStretch()
-        self.btn_download = QPushButton("下载此版本")
+        self.btn_download = QPushButton("下载并覆盖本地")
         self.btn_download.setEnabled(False)
         self.btn_download.clicked.connect(self._download)
         close_btn = QPushButton("关闭")
@@ -302,7 +302,7 @@ class CloudGamesDialog(QDialog):
 
     def __init__(self, parent, cloud_map: dict, entries):
         super().__init__(parent)
-        self.setWindowTitle("从云端获取")
+        self.setWindowTitle("从云端导入")
         self.resize(560, 380)
         self.selected = None
 
@@ -310,7 +310,7 @@ class CloudGamesDialog(QDialog):
         layout.addWidget(QLabel("当前账号下的云端游戏："))
 
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["名称", "最新版本", "大小", "本地状态"])
+        self.table.setHorizontalHeaderLabels(["名称", "云端版本", "大小", "本地关联"])
         h = self.table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.Stretch)
         for c in (1, 2, 3):
@@ -343,7 +343,7 @@ class CloudGamesDialog(QDialog):
 
         row = QHBoxLayout()
         row.addStretch()
-        self.btn_download = QPushButton("下载最新版本")
+        self.btn_download = QPushButton("导入到本地…")
         self.btn_download.setEnabled(False)
         self.btn_download.clicked.connect(self._download)
         self.table.itemSelectionChanged.connect(self._update)
@@ -381,7 +381,7 @@ class PersonalCenter(QDialog):
         layout.addWidget(QLabel(f"当前账号：{username or '未登录'}"))
 
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["名称", "本地目录", "云端最新", "状态", "关联"])
+        self.table.setHorizontalHeaderLabels(["名称", "存档目录", "云端版本", "状态", "关联应用"])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -397,22 +397,33 @@ class PersonalCenter(QDialog):
         self.status_label.setProperty("role", "muted")
         layout.addWidget(self.status_label)
 
-        row = QHBoxLayout()
-        self.btn_from_cloud = QPushButton("从云端获取…")
-        self.btn_add = QPushButton("新增")
-        self.btn_upload = QPushButton("上传本地")
-        self.btn_download = QPushButton("下载云端")
-        self.btn_view = QPushButton("查看云端")
-        self.btn_unbind = QPushButton("解除绑定")
-        self.btn_del_remote = QPushButton("删除云端")
-        self.btn_del_local = QPushButton("删除本地")
-        row.addWidget(self.btn_from_cloud)
-        row.addWidget(self.btn_add)
-        row.addStretch()
-        for b in (self.btn_upload, self.btn_download, self.btn_view,
-                  self.btn_unbind, self.btn_del_remote, self.btn_del_local):
-            row.addWidget(b)
-        layout.addLayout(row)
+        self.btn_from_cloud = QPushButton("从云端导入…")
+        self.btn_from_cloud.setToolTip("把账号下的云端游戏下载到本机并建立关联（新设备/首次）")
+        self.btn_add = QPushButton("新建目录")
+        self.btn_add.setToolTip("在本地登记一个存档目录（对应一个本地条目，尚未上传云端）")
+        self.btn_upload = QPushButton("上传到云端")
+        self.btn_upload.setToolTip("用本地存档新建一个云端版本（不改本地文件）")
+        self.btn_download = QPushButton("下载到本地")
+        self.btn_download.setToolTip("下载云端最新版本并覆盖本地（覆盖前自动备份）")
+        self.btn_view = QPushButton("查看云端版本…")
+        self.btn_view.setToolTip("查看该条目的云端历史版本与文件")
+        self.btn_unbind = QPushButton("解除云端关联")
+        self.btn_unbind.setToolTip("只解除关联，不删除本地文件与云端存档")
+        self.btn_del_remote = QPushButton("删除云端存档")
+        self.btn_del_remote.setToolTip("删除账号下的云端存档（本地不受影响）")
+        self.btn_del_local = QPushButton("删除目录")
+        self.btn_del_local.setToolTip("仅删除本地条目，不删除磁盘上的存档目录，也不影响云端存档")
+
+        row1 = QHBoxLayout()
+        for b in (self.btn_from_cloud, self.btn_add, self.btn_upload, self.btn_download):
+            row1.addWidget(b)
+        row1.addStretch()
+        row2 = QHBoxLayout()
+        for b in (self.btn_view, self.btn_unbind, self.btn_del_remote, self.btn_del_local):
+            row2.addWidget(b)
+        row2.addStretch()
+        layout.addLayout(row1)
+        layout.addLayout(row2)
 
         self.btn_from_cloud.clicked.connect(self._open_cloud_games)
         self.btn_add.clicked.connect(self._add)
@@ -514,7 +525,7 @@ class PersonalCenter(QDialog):
 
         binding = sb.classify_cloud_binding(entries, cloud_game)
         if binding == sb.NAME_OTHER:
-            QMessageBox.warning(self, "冲突", "本地已有同名条目且已绑定其它云端游戏，请手动处理。")
+            QMessageBox.warning(self, "冲突", "本地已有同名条目且已关联其它云端游戏，请手动处理。")
             return
 
         bind_entry_id = None
@@ -559,7 +570,7 @@ class PersonalCenter(QDialog):
         box = QMessageBox(self)
         box.setWindowTitle("同名条目")
         box.setText(f"本地已存在同名条目「{name}」，请选择处理方式：")
-        b_bind = box.addButton("绑定已有条目", QMessageBox.AcceptRole)
+        b_bind = box.addButton("关联已有条目", QMessageBox.AcceptRole)
         b_new = box.addButton("新建本地条目", QMessageBox.AcceptRole)
         b_cancel = box.addButton("取消", QMessageBox.RejectRole)
         box.setDefaultButton(b_cancel)
@@ -586,7 +597,7 @@ class PersonalCenter(QDialog):
                 return
             QMessageBox.warning(self, "下载失败", ss_http_msg(res))
             return
-        QMessageBox.information(self, "完成", f"已下载并绑定，版本 v{res['version']}。")
+        QMessageBox.information(self, "完成", f"已下载并关联，版本 v{res['version']}。")
         self.refresh()
 
     def _unbind(self):
@@ -594,7 +605,7 @@ class PersonalCenter(QDialog):
         if entry is None or entry.server_id is None:
             return
         if QMessageBox.question(
-            self, "解除绑定",
+            self, "解除云端关联",
             "仅解除与云端游戏的关联，不删除本地条目和存档文件。\n是否继续？",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
@@ -748,7 +759,8 @@ class PersonalCenter(QDialog):
         entry = self._selected_entry()
         if entry is None:
             return
-        if QMessageBox.question(self, "删除本地条目", "确定删除该本地条目？（不删除本地文件与云端）",
+        if QMessageBox.question(self, "删除本地条目",
+                                "确定删除该本地条目？\n（不会删除磁盘上的存档目录，也不影响云端存档）",
                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
         AppRepository.delete_save_game(entry.id)

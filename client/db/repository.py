@@ -556,7 +556,7 @@ class AppRepository:
     @staticmethod
     def create_bound_save_game(name: str, local_path: str, server_id: int,
                                version: Optional[int], fingerprint: Optional[str]) -> Optional[SaveGame]:
-        """创建已绑定云端游戏的本地条目（linked_app_path 留空，单事务）。"""
+        """创建已关联云端游戏的本地条目（linked_app_path 留空，单事务）。"""
         db = SessionLocal()
         try:
             now = datetime.datetime.now()
@@ -584,7 +584,7 @@ class AppRepository:
     @staticmethod
     def bind_save_game_to_server(save_id: int, server_id: int,
                                  version: Optional[int], fingerprint: Optional[str]) -> bool:
-        """把已有本地条目绑定到云端游戏并写入同步状态（不改本地路径与文件）。"""
+        """把已有本地条目关联到云端游戏并写入同步状态（不改本地路径与文件）。"""
         db = SessionLocal()
         try:
             obj = db.query(SaveGame).filter_by(id=save_id).first()
