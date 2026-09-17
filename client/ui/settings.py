@@ -4,10 +4,10 @@ import shutil
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QCheckBox, QFormLayout, QSpinBox, QGroupBox, QDialogButtonBox,
+    QCheckBox, QFormLayout, QSpinBox, QDialogButtonBox,
     QRadioButton, QButtonGroup, QFileDialog, QMessageBox,
     QLineEdit, QSizePolicy, QSlider, QStyle, QStyleOptionSlider,
-    QWidget, QScrollArea, QFrame
+    QWidget, QScrollArea, QFrame, QListWidget, QStackedWidget
 )
 
 from util.config import Settings
@@ -200,296 +200,48 @@ class CloseAskDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
+    """设置对话框：左侧分类导航 + 右侧对应设置内容。
+
+    仅布局分层；所有设置控件仍在构造期建立，保存/重置/校验/联动逻辑不变。
+    """
 
     def __init__(self, parent=None, app_start_time=None, total_runtime=0):
         super().__init__(parent)
         self.setWindowTitle("设置")
         self._app_start_time = app_start_time
         self._base_runtime = total_runtime
-        self.setMinimumWidth(380)
         self.setWindowFlags(
             Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
         )
+        self.resize(760, 560)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 10)
         layout.setSpacing(10)
 
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(10)
+        body = QHBoxLayout()
+        body.setSpacing(12)
 
-        # --- 关闭行为 ---
-        close_group = QGroupBox("关闭行为")
-        close_form = QFormLayout(close_group)
-        close_form.setContentsMargins(10, 16, 10, 8)
+        self._nav = QListWidget()
+        self._nav.setObjectName("settings_nav")
+        self._nav.setFixedWidth(120)
+        self._nav.addItems(["常规", "监控与同步", "外观", "云存档", "数据"])
+        body.addWidget(self._nav)
 
-        self.combo_close_action = AlwaysDownComboBox()
-        self.combo_close_action.addItem("每次询问", "ask")
-        self.combo_close_action.addItem("最小化到托盘", "tray")
-        self.combo_close_action.addItem("退出程序", "exit")
+        self._stack = QStackedWidget()
+        body.addWidget(self._stack, stretch=1)
+        layout.addLayout(body, stretch=1)
 
-        saved = Settings().get("closeToTray")
-        if saved == "tray":
-            self.combo_close_action.setCurrentIndex(1)
-        elif saved == "exit":
-            self.combo_close_action.setCurrentIndex(2)
-        else:
-            self.combo_close_action.setCurrentIndex(0)
+        self._build_page_general()
+        self._build_page_monitor()
+        self._build_page_appearance()
+        self._build_page_cloud()
+        self._build_page_data()
 
-        close_form.addRow("点击关闭按钮时:", self.combo_close_action)
-        content_layout.addWidget(close_group)
+        self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
+        self._nav.setCurrentRow(0)
 
-        # --- 通用 ---
-        general_group = QGroupBox("通用")
-        general_form = QFormLayout(general_group)
-        general_form.setContentsMargins(10, 16, 10, 8)
-
-        self.check_autostart = QCheckBox("开机自动启动")
-        if autostart.is_available():
-            self.check_autostart.setChecked(autostart.is_enabled())
-        else:
-            self.check_autostart.setEnabled(False)
-            self.check_autostart.setToolTip("打包为 exe 后可用")
-        general_form.addRow(self.check_autostart)
-
-        self.check_minimize_on_start = QCheckBox("启动时最小化")
-        self.check_minimize_on_start.setChecked(Settings().get("minimizeOnStart", False))
-        general_form.addRow(self.check_minimize_on_start)
-
-        self._sync_enabled = bool(Settings().get("syncEnabled", True))
-        self.check_sync_enabled = QCheckBox()
-        self.check_sync_enabled.setChecked(self._sync_enabled)
-        self.check_sync_enabled.setToolTip("勾选启用后台自动同步，取消勾选则整条设置变暗且不再自动同步。")
-        self.check_sync_enabled.stateChanged.connect(self._on_sync_enabled_changed)
-
-        self._sync_label = QLabel("同步间隔:")
-        self.spin_sync_interval = QSpinBox()
-        self.spin_sync_interval.setRange(10, 600)
-        self.spin_sync_interval.setSuffix(" 秒")
-        self.spin_sync_interval.setValue(int(Settings().get("syncIntervalSeconds", 60)))
-        self.spin_sync_interval.setToolTip("后台同步检查间隔，范围 10–600 秒。")
-
-        sync_inner = QHBoxLayout()
-        sync_inner.setSpacing(4)
-        sync_inner.addWidget(self.check_sync_enabled)
-        sync_inner.addWidget(self._sync_label)
-
-        sync_row = QHBoxLayout()
-        sync_row.setSpacing(6)
-        sync_row.addLayout(sync_inner)
-        sync_row.addWidget(self.spin_sync_interval)
-        sync_row.addStretch()
-        general_form.addRow(sync_row)
-
-        self._apply_sync_enabled_state()
-
-        self._idle_enabled = bool(Settings().get("idleEnabled", True))
-        self.check_idle_enabled = QCheckBox()
-        self.check_idle_enabled.setChecked(self._idle_enabled)
-        self.check_idle_enabled.setToolTip("勾选启用暂离检测，取消勾选则整条设置变暗且暂离功能失效。")
-        self.check_idle_enabled.stateChanged.connect(self._on_idle_enabled_changed)
-
-        self._idle_label = QLabel("暂离状态所需时长:")
-        self.spin_idle_threshold = QSpinBox()
-        self.spin_idle_threshold.setRange(0, 30)
-        self.spin_idle_threshold.setSuffix(" 分钟")
-        self.spin_idle_threshold.setValue(int(Settings().get("idleThresholdSeconds", 300) // 60))
-        self.spin_idle_threshold.setToolTip("无键鼠操作超过此时长视为暂离，暂停专注计时。设为 0 禁用。")
-
-        idle_inner = QHBoxLayout()
-        idle_inner.setSpacing(4)
-        idle_inner.addWidget(self.check_idle_enabled)
-        idle_inner.addWidget(self._idle_label)
-
-        idle_row = QHBoxLayout()
-        idle_row.setSpacing(6)
-        idle_row.addLayout(idle_inner)
-        idle_row.addWidget(self.spin_idle_threshold)
-        idle_row.addStretch()
-        general_form.addRow(idle_row)
-
-        self.check_idle_tip = QCheckBox("达到暂离时长时弹出提示")
-        self.check_idle_tip.setChecked(bool(Settings().get("idleTipEnabled", False)))
-        self.check_idle_tip.setToolTip("无操作达到上方时长时，弹出系统托盘提示。")
-        general_form.addRow(self.check_idle_tip)
-
-        self._apply_idle_enabled_state()
-
-        self.check_hide_on_pick = QCheckBox("拾取窗口时隐藏主窗口")
-        self.check_hide_on_pick.setChecked(bool(Settings().get("hideWindowOnPick", True)))
-        self.check_hide_on_pick.setToolTip("拾取窗口时临时隐藏主窗口，便于选取被主窗口挡住的窗口。")
-        general_form.addRow(self.check_hide_on_pick)
-
-        content_layout.addWidget(general_group)
-
-        # --- 显示 ---
-        display_group = QGroupBox("显示")
-        display_form = QFormLayout(display_group)
-        display_form.setContentsMargins(10, 16, 10, 8)
-
-        self.check_show_tray = QCheckBox("显示系统托盘图标")
-        self.check_show_tray.setToolTip("在系统托盘区显示图标，可快速唤出窗口。")
-        self.check_show_tray.setChecked(bool(Settings().get("showTrayIcon", True)))
-        display_form.addRow(self.check_show_tray)
-
-        theme_label = QLabel("主题:")
-        self.radio_light = QRadioButton("浅色模式")
-        self.radio_dark = QRadioButton("深色模式")
-        self.radio_system = QRadioButton("跟随系统")
-        self.theme_group = QButtonGroup(self)
-        self.theme_group.addButton(self.radio_light)
-        self.theme_group.addButton(self.radio_dark)
-        self.theme_group.addButton(self.radio_system)
-
-        current_theme = Settings().get("themeMode", "system")
-        if current_theme == "light":
-            self.radio_light.setChecked(True)
-        elif current_theme == "dark":
-            self.radio_dark.setChecked(True)
-        else:
-            self.radio_system.setChecked(True)
-
-        theme_layout = QHBoxLayout()
-        theme_layout.addWidget(self.radio_light)
-        theme_layout.addWidget(self.radio_dark)
-        theme_layout.addWidget(self.radio_system)
-        display_form.addRow(theme_label, theme_layout)
-
-        time_format_label = QLabel("时间格式:")
-        self.radio_fmt_chinese = QRadioButton("中文（39小时56分13秒）")
-        self.radio_fmt_english = QRadioButton("英文（39h56m13s）")
-        self.radio_fmt_numeric = QRadioButton("数字（39:56:13）")
-        self.time_format_group = QButtonGroup(self)
-        self.time_format_group.addButton(self.radio_fmt_chinese)
-        self.time_format_group.addButton(self.radio_fmt_english)
-        self.time_format_group.addButton(self.radio_fmt_numeric)
-
-        current_format = Settings().get("timeFormat", "english")
-        if current_format == "chinese":
-            self.radio_fmt_chinese.setChecked(True)
-        elif current_format == "numeric":
-            self.radio_fmt_numeric.setChecked(True)
-        else:
-            self.radio_fmt_english.setChecked(True)
-
-        time_format_layout = QVBoxLayout()
-        time_format_layout.addWidget(self.radio_fmt_chinese)
-        time_format_layout.addWidget(self.radio_fmt_english)
-        time_format_layout.addWidget(self.radio_fmt_numeric)
-        display_form.addRow(time_format_label, time_format_layout)
-
-        self.btn_zoom = QPushButton("调整列表缩放...")
-        self.btn_zoom.clicked.connect(self._open_zoom_dialog)
-        display_form.addRow(self.btn_zoom)
-
-        content_layout.addWidget(display_group)
-
-        # --- 云存档 ---
-        cloud_group = QGroupBox("云存档")
-        cloud_form = QFormLayout(cloud_group)
-        cloud_form.setContentsMargins(10, 16, 10, 8)
-
-        self.check_cloud_enabled = QCheckBox("启用云存档同步")
-        self.check_cloud_enabled.setToolTip("关闭后不进行任何云存档操作。")
-        self.check_cloud_enabled.setChecked(bool(Settings().get("cloudSaveEnabled", True)))
-        cloud_form.addRow(self.check_cloud_enabled)
-
-        self.check_cloud_sync_login = QCheckBox("登录时同步存档")
-        self.check_cloud_sync_login.setToolTip("登录后自动比对并同步云端与本地存档（不覆盖有改动的本地存档）。")
-        self.check_cloud_sync_login.setChecked(bool(Settings().get("cloudSyncOnLogin", False)))
-        cloud_form.addRow(self.check_cloud_sync_login)
-
-        self.check_cloud_auto_upload = QCheckBox("关闭游戏后自动上传")
-        self.check_cloud_auto_upload.setToolTip("仅对在个人中心关联了应用的存档条目生效。")
-        self.check_cloud_auto_upload.setChecked(bool(Settings().get("cloudAutoUploadOnClose", False)))
-        cloud_form.addRow(self.check_cloud_auto_upload)
-
-        self.check_cloud_use_proxy = QCheckBox("使用系统代理")
-        self.check_cloud_use_proxy.setToolTip(
-            "未勾选：直连（忽略系统代理，上传更稳）。\n"
-            "勾选且地址留空：使用系统代理。\n"
-            "勾选并填写地址：走该代理（如 127.0.0.1:7897）。")
-        self.check_cloud_use_proxy.setChecked(bool(Settings().get("useSystemProxy", False)))
-        cloud_form.addRow(self.check_cloud_use_proxy)
-
-        proxy_row = QHBoxLayout()
-        self.proxy_address_edit = QLineEdit(str(Settings().get("proxyAddress", "") or ""))
-        self.proxy_address_edit.setPlaceholderText("127.0.0.1:7897（留空则使用系统代理）")
-        proxy_row.addWidget(self.proxy_address_edit, stretch=1)
-        cloud_form.addRow("代理地址：", proxy_row)
-
-        self.proxy_hint = QLabel("")
-        self.proxy_hint.setStyleSheet("color: #dc2626; font-size: 12px;")
-        self.proxy_hint.setVisible(False)
-        cloud_form.addRow("", self.proxy_hint)
-
-        self.check_cloud_use_proxy.toggled.connect(self.proxy_address_edit.setEnabled)
-        self.proxy_address_edit.setEnabled(self.check_cloud_use_proxy.isChecked())
-        self.proxy_address_edit.textChanged.connect(self._on_proxy_address_changed)
-
-        content_layout.addWidget(cloud_group)
-
-        # --- 数据 ---
-        data_group = QGroupBox("数据")
-        data_form = QFormLayout(data_group)
-        data_form.setContentsMargins(10, 16, 10, 8)
-
-        # 当前数据目录
-        path_layout = QHBoxLayout()
-        self.path_edit = QLineEdit(get_data_dir())
-        self.path_edit.setReadOnly(True)
-        path_layout.addWidget(self.path_edit, stretch=1)
-
-        self.btn_change_dir = QPushButton("更改...")
-        self.btn_change_dir.setFixedWidth(70)
-        self.btn_change_dir.clicked.connect(self._on_change_data_dir)
-        path_layout.addWidget(self.btn_change_dir)
-        data_form.addRow("存储位置:", path_layout)
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        self.btn_data_transfer = QPushButton("数据转移…")
-        self.btn_data_transfer.clicked.connect(self._on_data_transfer)
-        btn_row.addWidget(self.btn_data_transfer)
-
-        self.btn_clear_data = QPushButton("清除所有数据")
-        self.btn_clear_data.clicked.connect(self._on_clear_all)
-        btn_row.addWidget(self.btn_clear_data)
-
-        self.btn_clear_failed = QPushButton("清除失败队列")
-        self.btn_clear_failed.clicked.connect(self._on_clear_failed)
-        btn_row.addWidget(self.btn_clear_failed)
-
-        data_form.addRow(btn_row)
-
-        content_layout.addWidget(data_group)
-
-        # --- 运行统计 ---
-        stats_group = QGroupBox("运行统计")
-        stats_layout = QVBoxLayout(stats_group)
-        stats_layout.setContentsMargins(10, 16, 10, 8)
-        stats_layout.setSpacing(6)
-
-        self._label_current = QLabel("本次运行：计算中…")
-        stats_layout.addWidget(self._label_current)
-
-        self._label_total = QLabel("累计运行：计算中…")
-        self._label_total.setProperty("role", "muted")
-        stats_layout.addWidget(self._label_total)
-
-        content_layout.addWidget(stats_group)
-
-        self._runtime_timer = QTimer(self)
-        self._runtime_timer.timeout.connect(self._update_runtime_display)
-        self._runtime_timer.start(1000)
-        self._update_runtime_display()
-
-        content_layout.addStretch()
-
-        # --- 底部按钮 ---
+        # --- 底部按钮（固定）---
         btn_layout = QHBoxLayout()
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(6)
@@ -520,25 +272,321 @@ class SettingsDialog(QDialog):
         self.btn_apply.clicked.connect(self._on_apply)
         btn_layout.addWidget(self.btn_apply)
 
-        # 自适应：内容超出屏幕时启用滚动
-        screen = self.screen()
-        if screen is None:
-            from PySide6.QtGui import QGuiApplication
-            screen = QGuiApplication.primaryScreen()
-        screen_height = screen.availableGeometry().height() if screen else 1080
-        needed = content_widget.sizeHint().height() + 68
-        if needed > screen_height:
-            self.setMaximumHeight(screen_height - 50)
-            scroll = QScrollArea()
-            scroll.setWidget(content_widget)
-            scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QFrame.NoFrame)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            layout.addWidget(scroll, stretch=1)
-        else:
-            layout.addWidget(content_widget, stretch=1)
-
         layout.addLayout(btn_layout)
+
+    # ---------------- 页面构建 ----------------
+
+    @staticmethod
+    def _make_page():
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(12)
+        return page, box
+
+    def _add_page(self, page: QWidget) -> None:
+        scroll = QScrollArea()
+        scroll.setWidget(page)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._stack.addWidget(scroll)
+
+    @staticmethod
+    def _section_title(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setStyleSheet("font-weight: 600;")
+        return label
+
+    def _build_page_general(self):
+        page, box = self._make_page()
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+
+        self.combo_close_action = AlwaysDownComboBox()
+        self.combo_close_action.addItem("每次询问", "ask")
+        self.combo_close_action.addItem("最小化到托盘", "tray")
+        self.combo_close_action.addItem("退出程序", "exit")
+
+        saved = Settings().get("closeToTray")
+        if saved == "tray":
+            self.combo_close_action.setCurrentIndex(1)
+        elif saved == "exit":
+            self.combo_close_action.setCurrentIndex(2)
+        else:
+            self.combo_close_action.setCurrentIndex(0)
+
+        form.addRow("点击关闭按钮时:", self.combo_close_action)
+
+        self.check_autostart = QCheckBox("开机自动启动")
+        if autostart.is_available():
+            self.check_autostart.setChecked(autostart.is_enabled())
+        else:
+            self.check_autostart.setEnabled(False)
+            self.check_autostart.setToolTip("打包为 exe 后可用")
+        form.addRow(self.check_autostart)
+
+        self.check_minimize_on_start = QCheckBox("启动时最小化")
+        self.check_minimize_on_start.setChecked(Settings().get("minimizeOnStart", False))
+        form.addRow(self.check_minimize_on_start)
+
+        self.check_hide_on_pick = QCheckBox("拾取窗口时隐藏主窗口")
+        self.check_hide_on_pick.setChecked(bool(Settings().get("hideWindowOnPick", True)))
+        self.check_hide_on_pick.setToolTip("拾取窗口时临时隐藏主窗口，便于选取被主窗口挡住的窗口。")
+        form.addRow(self.check_hide_on_pick)
+
+        box.addLayout(form)
+        box.addStretch()
+        self._add_page(page)
+
+    def _build_page_monitor(self):
+        page, box = self._make_page()
+
+        box.addWidget(self._section_title("后台同步"))
+        sync_form = QFormLayout()
+        sync_form.setContentsMargins(0, 0, 0, 0)
+
+        self._sync_enabled = bool(Settings().get("syncEnabled", True))
+        self.check_sync_enabled = QCheckBox()
+        self.check_sync_enabled.setChecked(self._sync_enabled)
+        self.check_sync_enabled.setToolTip("勾选启用后台自动同步，取消勾选则整条设置变暗且不再自动同步。")
+        self.check_sync_enabled.stateChanged.connect(self._on_sync_enabled_changed)
+
+        self._sync_label = QLabel("同步间隔:")
+        self.spin_sync_interval = QSpinBox()
+        self.spin_sync_interval.setRange(10, 600)
+        self.spin_sync_interval.setSuffix(" 秒")
+        self.spin_sync_interval.setValue(int(Settings().get("syncIntervalSeconds", 60)))
+        self.spin_sync_interval.setToolTip("后台同步检查间隔，范围 10–600 秒。")
+
+        sync_inner = QHBoxLayout()
+        sync_inner.setSpacing(4)
+        sync_inner.addWidget(self.check_sync_enabled)
+        sync_inner.addWidget(self._sync_label)
+
+        sync_row = QHBoxLayout()
+        sync_row.setSpacing(6)
+        sync_row.addLayout(sync_inner)
+        sync_row.addWidget(self.spin_sync_interval)
+        sync_row.addStretch()
+        sync_form.addRow(sync_row)
+        box.addLayout(sync_form)
+        self._apply_sync_enabled_state()
+
+        box.addWidget(self._section_title("暂离检测"))
+        idle_form = QFormLayout()
+        idle_form.setContentsMargins(0, 0, 0, 0)
+
+        self._idle_enabled = bool(Settings().get("idleEnabled", True))
+        self.check_idle_enabled = QCheckBox()
+        self.check_idle_enabled.setChecked(self._idle_enabled)
+        self.check_idle_enabled.setToolTip("勾选启用暂离检测，取消勾选则整条设置变暗且暂离功能失效。")
+        self.check_idle_enabled.stateChanged.connect(self._on_idle_enabled_changed)
+
+        self._idle_label = QLabel("暂离状态所需时长:")
+        self.spin_idle_threshold = QSpinBox()
+        self.spin_idle_threshold.setRange(0, 30)
+        self.spin_idle_threshold.setSuffix(" 分钟")
+        self.spin_idle_threshold.setValue(int(Settings().get("idleThresholdSeconds", 300) // 60))
+        self.spin_idle_threshold.setToolTip("无键鼠操作超过此时长视为暂离，暂停专注计时。设为 0 禁用。")
+
+        idle_inner = QHBoxLayout()
+        idle_inner.setSpacing(4)
+        idle_inner.addWidget(self.check_idle_enabled)
+        idle_inner.addWidget(self._idle_label)
+
+        idle_row = QHBoxLayout()
+        idle_row.setSpacing(6)
+        idle_row.addLayout(idle_inner)
+        idle_row.addWidget(self.spin_idle_threshold)
+        idle_row.addStretch()
+        idle_form.addRow(idle_row)
+
+        self.check_idle_tip = QCheckBox("达到暂离时长时弹出提示")
+        self.check_idle_tip.setChecked(bool(Settings().get("idleTipEnabled", False)))
+        self.check_idle_tip.setToolTip("无操作达到上方时长时，弹出系统托盘提示。")
+        idle_form.addRow(self.check_idle_tip)
+        box.addLayout(idle_form)
+        self._apply_idle_enabled_state()
+
+        box.addStretch()
+        self._add_page(page)
+
+    def _build_page_appearance(self):
+        page, box = self._make_page()
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+
+        self.check_show_tray = QCheckBox("显示系统托盘图标")
+        self.check_show_tray.setToolTip("在系统托盘区显示图标，可快速唤出窗口。")
+        self.check_show_tray.setChecked(bool(Settings().get("showTrayIcon", True)))
+        form.addRow(self.check_show_tray)
+
+        theme_label = QLabel("主题:")
+        self.radio_light = QRadioButton("浅色模式")
+        self.radio_dark = QRadioButton("深色模式")
+        self.radio_system = QRadioButton("跟随系统")
+        self.theme_group = QButtonGroup(self)
+        self.theme_group.addButton(self.radio_light)
+        self.theme_group.addButton(self.radio_dark)
+        self.theme_group.addButton(self.radio_system)
+
+        current_theme = Settings().get("themeMode", "system")
+        if current_theme == "light":
+            self.radio_light.setChecked(True)
+        elif current_theme == "dark":
+            self.radio_dark.setChecked(True)
+        else:
+            self.radio_system.setChecked(True)
+
+        theme_layout = QHBoxLayout()
+        theme_layout.addWidget(self.radio_light)
+        theme_layout.addWidget(self.radio_dark)
+        theme_layout.addWidget(self.radio_system)
+        form.addRow(theme_label, theme_layout)
+
+        time_format_label = QLabel("时间格式:")
+        self.radio_fmt_chinese = QRadioButton("中文（39小时56分13秒）")
+        self.radio_fmt_english = QRadioButton("英文（39h56m13s）")
+        self.radio_fmt_numeric = QRadioButton("数字（39:56:13）")
+        self.time_format_group = QButtonGroup(self)
+        self.time_format_group.addButton(self.radio_fmt_chinese)
+        self.time_format_group.addButton(self.radio_fmt_english)
+        self.time_format_group.addButton(self.radio_fmt_numeric)
+
+        current_format = Settings().get("timeFormat", "english")
+        if current_format == "chinese":
+            self.radio_fmt_chinese.setChecked(True)
+        elif current_format == "numeric":
+            self.radio_fmt_numeric.setChecked(True)
+        else:
+            self.radio_fmt_english.setChecked(True)
+
+        time_format_layout = QVBoxLayout()
+        time_format_layout.addWidget(self.radio_fmt_chinese)
+        time_format_layout.addWidget(self.radio_fmt_english)
+        time_format_layout.addWidget(self.radio_fmt_numeric)
+        form.addRow(time_format_label, time_format_layout)
+
+        self.btn_zoom = QPushButton("调整列表缩放...")
+        self.btn_zoom.clicked.connect(self._open_zoom_dialog)
+        form.addRow(self.btn_zoom)
+
+        box.addLayout(form)
+        box.addStretch()
+        self._add_page(page)
+
+    def _build_page_cloud(self):
+        page, box = self._make_page()
+
+        box.addWidget(self._section_title("同步"))
+        sync_form = QFormLayout()
+        sync_form.setContentsMargins(0, 0, 0, 0)
+
+        self.check_cloud_enabled = QCheckBox("启用云存档同步")
+        self.check_cloud_enabled.setToolTip("关闭后不进行任何云存档操作。")
+        self.check_cloud_enabled.setChecked(bool(Settings().get("cloudSaveEnabled", True)))
+        sync_form.addRow(self.check_cloud_enabled)
+
+        self.check_cloud_sync_login = QCheckBox("登录时同步存档")
+        self.check_cloud_sync_login.setToolTip("登录后自动比对并同步云端与本地存档（不覆盖有改动的本地存档）。")
+        self.check_cloud_sync_login.setChecked(bool(Settings().get("cloudSyncOnLogin", False)))
+        sync_form.addRow(self.check_cloud_sync_login)
+
+        self.check_cloud_auto_upload = QCheckBox("关闭游戏后自动上传")
+        self.check_cloud_auto_upload.setToolTip("仅对在个人中心关联了应用的存档条目生效。")
+        self.check_cloud_auto_upload.setChecked(bool(Settings().get("cloudAutoUploadOnClose", False)))
+        sync_form.addRow(self.check_cloud_auto_upload)
+        box.addLayout(sync_form)
+
+        box.addWidget(self._section_title("网络代理"))
+        proxy_form = QFormLayout()
+        proxy_form.setContentsMargins(0, 0, 0, 0)
+
+        self.check_cloud_use_proxy = QCheckBox("使用系统代理")
+        self.check_cloud_use_proxy.setToolTip(
+            "未勾选：直连（忽略系统代理）。\n"
+            "勾选且地址留空：使用系统代理。\n"
+            "勾选并填写地址：走该代理（host:port）。")
+        self.check_cloud_use_proxy.setChecked(bool(Settings().get("useSystemProxy", False)))
+        proxy_form.addRow(self.check_cloud_use_proxy)
+
+        proxy_row = QHBoxLayout()
+        self.proxy_address_edit = QLineEdit(str(Settings().get("proxyAddress", "") or ""))
+        self.proxy_address_edit.setPlaceholderText("host:port")
+        proxy_row.addWidget(self.proxy_address_edit, stretch=1)
+        proxy_form.addRow("代理地址：", proxy_row)
+
+        self.proxy_hint = QLabel("")
+        self.proxy_hint.setStyleSheet("color: #dc2626; font-size: 12px;")
+        self.proxy_hint.setVisible(False)
+        proxy_form.addRow("", self.proxy_hint)
+
+        self.check_cloud_use_proxy.toggled.connect(self.proxy_address_edit.setEnabled)
+        self.proxy_address_edit.setEnabled(self.check_cloud_use_proxy.isChecked())
+        self.proxy_address_edit.textChanged.connect(self._on_proxy_address_changed)
+        box.addLayout(proxy_form)
+
+        box.addStretch()
+        self._add_page(page)
+
+    def _build_page_data(self):
+        page, box = self._make_page()
+
+        box.addWidget(self._section_title("存储与维护"))
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+
+        path_layout = QHBoxLayout()
+        self.path_edit = QLineEdit(get_data_dir())
+        self.path_edit.setReadOnly(True)
+        path_layout.addWidget(self.path_edit, stretch=1)
+
+        self.btn_change_dir = QPushButton("更改...")
+        self.btn_change_dir.setFixedWidth(70)
+        self.btn_change_dir.clicked.connect(self._on_change_data_dir)
+        path_layout.addWidget(self.btn_change_dir)
+        form.addRow("存储位置:", path_layout)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        self.btn_data_transfer = QPushButton("数据转移…")
+        self.btn_data_transfer.clicked.connect(self._on_data_transfer)
+        btn_row.addWidget(self.btn_data_transfer)
+
+        self.btn_clear_data = QPushButton("清除所有数据")
+        self.btn_clear_data.clicked.connect(self._on_clear_all)
+        btn_row.addWidget(self.btn_clear_data)
+
+        self.btn_clear_failed = QPushButton("清除失败队列")
+        self.btn_clear_failed.clicked.connect(self._on_clear_failed)
+        btn_row.addWidget(self.btn_clear_failed)
+
+        form.addRow(btn_row)
+        box.addLayout(form)
+
+        box.addWidget(self._section_title("运行统计"))
+        stats_layout = QVBoxLayout()
+        stats_layout.setSpacing(6)
+
+        self._label_current = QLabel("本次运行：计算中…")
+        stats_layout.addWidget(self._label_current)
+
+        self._label_total = QLabel("累计运行：计算中…")
+        self._label_total.setProperty("role", "muted")
+        stats_layout.addWidget(self._label_total)
+        box.addLayout(stats_layout)
+
+        box.addStretch()
+        self._add_page(page)
+
+        self._runtime_timer = QTimer(self)
+        self._runtime_timer.timeout.connect(self._update_runtime_display)
+        self._runtime_timer.start(1000)
+        self._update_runtime_display()
+
+    # ---------------- 逻辑（未改动） ----------------
 
     def _update_runtime_display(self):
         if self._app_start_time:

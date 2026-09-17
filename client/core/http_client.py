@@ -30,7 +30,7 @@ _session: Optional[requests.Session] = None
 def normalize_proxy_address(raw) -> Optional[str]:
     """把用户输入的代理地址规范为 http://host:port；非法或为空返回 None。
 
-    允许 "127.0.0.1:7897" 或 "http://127.0.0.1:7897"；空串表示"使用系统代理"。
+    允许 "host:port" 或 "http://host:port"；空串表示"使用系统代理"。
     """
     addr = str(raw or "").strip()
     if not addr:
@@ -56,7 +56,7 @@ def validate_proxy_address(raw) -> Tuple[bool, str]:
     if not addr:
         return True, ""
     if normalize_proxy_address(addr) is None:
-        return False, "代理地址无效，请填写 host:port（如 127.0.0.1:7897）。"
+        return False, "代理地址无效，请填写 host:port。"
     return True, ""
 
 
