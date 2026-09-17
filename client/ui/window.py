@@ -57,6 +57,7 @@ class GroupChipButton(QPushButton):
         self.setCheckable(True)
         self.setFixedHeight(40)
         self.setProperty("group_btn", True)
+        self.setProperty("group_chip", True)
         self.setProperty("group_id", group_id)
         self.setAcceptDrops(draggable)
         self._draggable = draggable
@@ -721,7 +722,6 @@ class Mywindow(QMainWindow):
         # 「全部」按钮（固定，颜色更深以区分）
         btn_all = GroupChipButton("全部", None, draggable=False, window=self)
         btn_all.setProperty("fixed_btn", True)
-        btn_all.setMaximumWidth(140)
         btn_all.setToolTip("全部")
         self.group_buttons.addButton(btn_all)
         self._group_btn_layout.addWidget(btn_all)
@@ -729,12 +729,10 @@ class Mywindow(QMainWindow):
             btn_all.setChecked(True)
         self._btn_group_all = btn_all
 
-        # 各分组按钮（可拖动排序；过长名称省略显示，tooltip 保留全名）
-        fm = self._group_btn_container.fontMetrics()
+        # 各分组按钮（可拖动排序；按完整名字自然取宽，tooltip 保留全名；
+        # 放不下由整体「…」聚合处理，不再对单个 chip 做像素截断）
         for gid, gname, color in groups:
-            display = fm.elidedText(gname, Qt.ElideRight, 100)
-            btn = GroupChipButton(display, gid, draggable=True, window=self, color=color)
-            btn.setMaximumWidth(140)
+            btn = GroupChipButton(gname, gid, draggable=True, window=self, color=color)
             btn.setToolTip(gname)
             self.group_buttons.addButton(btn)
             self._group_btn_layout.addWidget(btn)
@@ -835,9 +833,7 @@ class Mywindow(QMainWindow):
                     name = self._find_group_name(self._current_group_id) or "..."
                     overflow.setText(name)
                     overflow.setToolTip(name)
-                    overflow.setFixedWidth(
-                        min(140, overflow.fontMetrics().horizontalAdvance(name) + 24)
-                    )
+                    overflow.setFixedWidth(overflow.fontMetrics().horizontalAdvance(name) + 24)
                     overflow.setChecked(True)
                 else:
                     overflow.setText("...")
@@ -855,28 +851,38 @@ class Mywindow(QMainWindow):
             self._laying_out = False
 
     def _clamp_group_container_width(self) -> None:
-        """把分组容器宽度钳定为其可见子项之和，避免把后续固定控件挤出工具栏。
+        """把分组容器宽度钳定为其可见内容的自然宽度。
 
-        分组 chip 的真正收缩/溢出由 _layout_group_buttons 完成；这里只是让容器的
-        sizeHint 与实际可见内容一致，防止 QToolBar 的溢出判定把账号/设置挤走。
+        分组 chip 的收缩/溢出由 _layout_group_buttons 完成；这里用布局自身的
+        sizeHint（即可见子项的真实需求）作为容器宽度，保证 chip **不会小于文字宽度**
+        而被裁切；同时固定下来避免把后续固定控件（账号/设置）挤出工具栏。
         """
         container = getattr(self, "_group_btn_container", None)
         layout = getattr(self, "_group_btn_layout", None)
         if container is None or layout is None:
             return
         spacing = layout.spacing()
+        hidden = set(getattr(self, "_hidden_group_buttons", []))
+        overflow = getattr(self, "_btn_group_overflow", None)
         used = 0
         count = 0
         for i in range(layout.count()):
             w = layout.itemAt(i).widget()
-            if w is None or not w.isVisible():
+            if w is None or w in hidden:
+                continue
+            # 无折叠时不显示「…」，不计入宽度
+            if w is overflow and not hidden:
                 continue
             used += w.sizeHint().width()
             count += 1
         if count > 1:
             used += spacing * (count - 1)
         floor = 44 + 40 + 40 + spacing * 2  # 下限：「全部」+「…」+「+」
-        container.setFixedWidth(max(floor, used))
+        content = max(floor, used)
+        # 只设下限、不固定宽度：polish 后 sizeHint 变大时容器仍可增长，
+        # 从而绝不会把 chip 压到小于文字宽度而裁切。
+        container.setMinimumWidth(content)
+        container.setMaximumWidth(16777215)
 
     def _show_group_overflow_menu(self):
         """弹出被折叠的分组菜单。"""

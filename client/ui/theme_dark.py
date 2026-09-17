@@ -140,6 +140,11 @@ QPushButton[group_btn="true"] {
     font-weight: 500;
 }
 
+/* 分组名 chip：左对齐，空间不足时从右侧硬裁，保证首字完整 */
+QPushButton[group_btn="true"][group_chip="true"] {
+    text-align: left;
+}
+
 QPushButton[group_btn="true"]:hover {
     background-color: #475569;
     border-color: #64748b;
