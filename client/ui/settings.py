@@ -216,7 +216,7 @@ class SettingsDialog(QDialog):
         self.resize(760, 560)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 10)
+        layout.setContentsMargins(16, 16, 16, 12)
         layout.setSpacing(10)
 
         body = QHBoxLayout()
@@ -225,7 +225,7 @@ class SettingsDialog(QDialog):
         self._nav = QListWidget()
         self._nav.setObjectName("settings_nav")
         self._nav.setFixedWidth(120)
-        self._nav.addItems(["常规", "监控与同步", "外观", "云存档", "数据"])
+        self._nav.addItems(["常规", "监控与同步", "云存档", "数据"])
         body.addWidget(self._nav)
 
         self._stack = QStackedWidget()
@@ -234,7 +234,6 @@ class SettingsDialog(QDialog):
 
         self._build_page_general()
         self._build_page_monitor()
-        self._build_page_appearance()
         self._build_page_cloud()
         self._build_page_data()
 
@@ -243,7 +242,7 @@ class SettingsDialog(QDialog):
 
         # --- 底部按钮（固定）---
         btn_layout = QHBoxLayout()
-        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setContentsMargins(0, 8, 0, 0)
         btn_layout.setSpacing(6)
 
         self.btn_reset = QPushButton("恢复默认设置")
@@ -280,7 +279,7 @@ class SettingsDialog(QDialog):
     def _make_page():
         page = QWidget()
         box = QVBoxLayout(page)
-        box.setContentsMargins(0, 0, 0, 0)
+        box.setContentsMargins(8, 12, 16, 16)
         box.setSpacing(12)
         return page, box
 
@@ -300,6 +299,8 @@ class SettingsDialog(QDialog):
 
     def _build_page_general(self):
         page, box = self._make_page()
+
+        box.addWidget(self._section_title("启动与关闭"))
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
 
@@ -334,8 +335,68 @@ class SettingsDialog(QDialog):
         self.check_hide_on_pick.setChecked(bool(Settings().get("hideWindowOnPick", True)))
         self.check_hide_on_pick.setToolTip("拾取窗口时临时隐藏主窗口，便于选取被主窗口挡住的窗口。")
         form.addRow(self.check_hide_on_pick)
-
         box.addLayout(form)
+
+        box.addWidget(self._section_title("界面与外观"))
+        appearance = QFormLayout()
+        appearance.setContentsMargins(0, 0, 0, 0)
+
+        self.check_show_tray = QCheckBox("显示系统托盘图标")
+        self.check_show_tray.setToolTip("在系统托盘区显示图标，可快速唤出窗口。")
+        self.check_show_tray.setChecked(bool(Settings().get("showTrayIcon", True)))
+        appearance.addRow(self.check_show_tray)
+
+        theme_label = QLabel("主题:")
+        self.radio_light = QRadioButton("浅色模式")
+        self.radio_dark = QRadioButton("深色模式")
+        self.radio_system = QRadioButton("跟随系统")
+        self.theme_group = QButtonGroup(self)
+        self.theme_group.addButton(self.radio_light)
+        self.theme_group.addButton(self.radio_dark)
+        self.theme_group.addButton(self.radio_system)
+
+        current_theme = Settings().get("themeMode", "system")
+        if current_theme == "light":
+            self.radio_light.setChecked(True)
+        elif current_theme == "dark":
+            self.radio_dark.setChecked(True)
+        else:
+            self.radio_system.setChecked(True)
+
+        theme_layout = QHBoxLayout()
+        theme_layout.addWidget(self.radio_light)
+        theme_layout.addWidget(self.radio_dark)
+        theme_layout.addWidget(self.radio_system)
+        appearance.addRow(theme_label, theme_layout)
+
+        time_format_label = QLabel("时间格式:")
+        self.radio_fmt_chinese = QRadioButton("中文（39小时56分13秒）")
+        self.radio_fmt_english = QRadioButton("英文（39h56m13s）")
+        self.radio_fmt_numeric = QRadioButton("数字（39:56:13）")
+        self.time_format_group = QButtonGroup(self)
+        self.time_format_group.addButton(self.radio_fmt_chinese)
+        self.time_format_group.addButton(self.radio_fmt_english)
+        self.time_format_group.addButton(self.radio_fmt_numeric)
+
+        current_format = Settings().get("timeFormat", "english")
+        if current_format == "chinese":
+            self.radio_fmt_chinese.setChecked(True)
+        elif current_format == "numeric":
+            self.radio_fmt_numeric.setChecked(True)
+        else:
+            self.radio_fmt_english.setChecked(True)
+
+        time_format_layout = QVBoxLayout()
+        time_format_layout.addWidget(self.radio_fmt_chinese)
+        time_format_layout.addWidget(self.radio_fmt_english)
+        time_format_layout.addWidget(self.radio_fmt_numeric)
+        appearance.addRow(time_format_label, time_format_layout)
+
+        self.btn_zoom = QPushButton("调整列表缩放...")
+        self.btn_zoom.clicked.connect(self._open_zoom_dialog)
+        appearance.addRow(self.btn_zoom)
+        box.addLayout(appearance)
+
         box.addStretch()
         self._add_page(page)
 
@@ -409,70 +470,6 @@ class SettingsDialog(QDialog):
         box.addLayout(idle_form)
         self._apply_idle_enabled_state()
 
-        box.addStretch()
-        self._add_page(page)
-
-    def _build_page_appearance(self):
-        page, box = self._make_page()
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-
-        self.check_show_tray = QCheckBox("显示系统托盘图标")
-        self.check_show_tray.setToolTip("在系统托盘区显示图标，可快速唤出窗口。")
-        self.check_show_tray.setChecked(bool(Settings().get("showTrayIcon", True)))
-        form.addRow(self.check_show_tray)
-
-        theme_label = QLabel("主题:")
-        self.radio_light = QRadioButton("浅色模式")
-        self.radio_dark = QRadioButton("深色模式")
-        self.radio_system = QRadioButton("跟随系统")
-        self.theme_group = QButtonGroup(self)
-        self.theme_group.addButton(self.radio_light)
-        self.theme_group.addButton(self.radio_dark)
-        self.theme_group.addButton(self.radio_system)
-
-        current_theme = Settings().get("themeMode", "system")
-        if current_theme == "light":
-            self.radio_light.setChecked(True)
-        elif current_theme == "dark":
-            self.radio_dark.setChecked(True)
-        else:
-            self.radio_system.setChecked(True)
-
-        theme_layout = QHBoxLayout()
-        theme_layout.addWidget(self.radio_light)
-        theme_layout.addWidget(self.radio_dark)
-        theme_layout.addWidget(self.radio_system)
-        form.addRow(theme_label, theme_layout)
-
-        time_format_label = QLabel("时间格式:")
-        self.radio_fmt_chinese = QRadioButton("中文（39小时56分13秒）")
-        self.radio_fmt_english = QRadioButton("英文（39h56m13s）")
-        self.radio_fmt_numeric = QRadioButton("数字（39:56:13）")
-        self.time_format_group = QButtonGroup(self)
-        self.time_format_group.addButton(self.radio_fmt_chinese)
-        self.time_format_group.addButton(self.radio_fmt_english)
-        self.time_format_group.addButton(self.radio_fmt_numeric)
-
-        current_format = Settings().get("timeFormat", "english")
-        if current_format == "chinese":
-            self.radio_fmt_chinese.setChecked(True)
-        elif current_format == "numeric":
-            self.radio_fmt_numeric.setChecked(True)
-        else:
-            self.radio_fmt_english.setChecked(True)
-
-        time_format_layout = QVBoxLayout()
-        time_format_layout.addWidget(self.radio_fmt_chinese)
-        time_format_layout.addWidget(self.radio_fmt_english)
-        time_format_layout.addWidget(self.radio_fmt_numeric)
-        form.addRow(time_format_label, time_format_layout)
-
-        self.btn_zoom = QPushButton("调整列表缩放...")
-        self.btn_zoom.clicked.connect(self._open_zoom_dialog)
-        form.addRow(self.btn_zoom)
-
-        box.addLayout(form)
         box.addStretch()
         self._add_page(page)
 

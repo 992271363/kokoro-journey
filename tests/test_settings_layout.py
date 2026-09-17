@@ -32,9 +32,9 @@ app.processEvents()
 
 # --- 导航与分页 ---
 nav_items = [dlg._nav.item(i).text() for i in range(dlg._nav.count())]
-check("导航 5 项且顺序正确",
-      nav_items == ["常规", "监控与同步", "外观", "云存档", "数据"])
-check("分页数量与导航一致", dlg._stack.count() == 5)
+check("导航 4 项且顺序正确",
+      nav_items == ["常规", "监控与同步", "云存档", "数据"])
+check("分页数量与导航一致", dlg._stack.count() == 4)
 check("默认选中第一页", dlg._nav.currentRow() == 0 and dlg._stack.currentIndex() == 0)
 
 
@@ -43,21 +43,20 @@ def on_page(index: int, widget) -> bool:
     return page is not None and widget is not None and page.isAncestorOf(widget)
 
 
-# --- 每页包含预期控件 ---
+# --- 每页包含预期控件（常规已并入原「外观」）---
 check("常规页控件", all(on_page(0, w) for w in (
     dlg.combo_close_action, dlg.check_autostart,
-    dlg.check_minimize_on_start, dlg.check_hide_on_pick)))
-check("监控与同步页控件", all(on_page(1, w) for w in (
-    dlg.check_sync_enabled, dlg.spin_sync_interval,
-    dlg.check_idle_enabled, dlg.spin_idle_threshold, dlg.check_idle_tip)))
-check("外观页控件", all(on_page(2, w) for w in (
+    dlg.check_minimize_on_start, dlg.check_hide_on_pick,
     dlg.check_show_tray, dlg.radio_light, dlg.radio_dark, dlg.radio_system,
     dlg.radio_fmt_chinese, dlg.radio_fmt_english, dlg.radio_fmt_numeric,
     dlg.btn_zoom)))
-check("云存档页控件", all(on_page(3, w) for w in (
+check("监控与同步页控件", all(on_page(1, w) for w in (
+    dlg.check_sync_enabled, dlg.spin_sync_interval,
+    dlg.check_idle_enabled, dlg.spin_idle_threshold, dlg.check_idle_tip)))
+check("云存档页控件", all(on_page(2, w) for w in (
     dlg.check_cloud_enabled, dlg.check_cloud_sync_login, dlg.check_cloud_auto_upload,
     dlg.check_cloud_use_proxy, dlg.proxy_address_edit, dlg.proxy_hint)))
-check("数据页控件", all(on_page(4, w) for w in (
+check("数据页控件", all(on_page(3, w) for w in (
     dlg.path_edit, dlg.btn_change_dir, dlg.btn_data_transfer,
     dlg.btn_clear_data, dlg.btn_clear_failed,
     dlg._label_current, dlg._label_total)))
@@ -70,7 +69,7 @@ dlg.spin_sync_interval.setValue(123)
 check("监控页已改值", dlg.spin_sync_interval.value() == 123)
 dlg._nav.setCurrentRow(0)
 app.processEvents()
-dlg._nav.setCurrentRow(4)
+dlg._nav.setCurrentRow(3)
 app.processEvents()
 dlg._nav.setCurrentRow(1)
 app.processEvents()
@@ -79,7 +78,7 @@ dlg.spin_sync_interval.setValue(60)
 
 # --- 代理校验仍拦截保存 ---
 QMessageBox.warning = staticmethod(lambda *a, **k: QMessageBox.Ok)
-dlg._nav.setCurrentRow(3)
+dlg._nav.setCurrentRow(2)
 app.processEvents()
 dlg.check_cloud_use_proxy.setChecked(True)
 dlg.proxy_address_edit.setText("127.0.0.1")
