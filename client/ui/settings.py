@@ -20,6 +20,7 @@ from ui.transfer import DataTransferDialog
 from ui.wizard import FirstRunWizard
 from util.state import update_state
 from util.format import format_seconds_to_text
+from core.http_client import validate_proxy_address
 
 
 class StepSlider(QSlider):
@@ -407,9 +408,26 @@ class SettingsDialog(QDialog):
 
         self.check_cloud_use_proxy = QCheckBox("使用系统代理")
         self.check_cloud_use_proxy.setToolTip(
-            "默认关闭（直连，上传更稳）。\n若需要经系统代理访问云端，可勾选此项。")
+            "未勾选：直连（忽略系统代理，上传更稳）。\n"
+            "勾选且地址留空：使用系统代理。\n"
+            "勾选并填写地址：走该代理（如 127.0.0.1:7897）。")
         self.check_cloud_use_proxy.setChecked(bool(Settings().get("useSystemProxy", False)))
         cloud_form.addRow(self.check_cloud_use_proxy)
+
+        proxy_row = QHBoxLayout()
+        self.proxy_address_edit = QLineEdit(str(Settings().get("proxyAddress", "") or ""))
+        self.proxy_address_edit.setPlaceholderText("127.0.0.1:7897（留空则使用系统代理）")
+        proxy_row.addWidget(self.proxy_address_edit, stretch=1)
+        cloud_form.addRow("代理地址：", proxy_row)
+
+        self.proxy_hint = QLabel("")
+        self.proxy_hint.setStyleSheet("color: #dc2626; font-size: 12px;")
+        self.proxy_hint.setVisible(False)
+        cloud_form.addRow("", self.proxy_hint)
+
+        self.check_cloud_use_proxy.toggled.connect(self.proxy_address_edit.setEnabled)
+        self.proxy_address_edit.setEnabled(self.check_cloud_use_proxy.isChecked())
+        self.proxy_address_edit.textChanged.connect(self._on_proxy_address_changed)
 
         content_layout.addWidget(cloud_group)
 
@@ -641,7 +659,21 @@ class SettingsDialog(QDialog):
         self._apply_sync_enabled_state()
         Settings().set("syncEnabled", bool(state))
 
-    def _save_settings(self) -> None:
+    def _on_proxy_address_changed(self, text: str) -> None:
+        ok, msg = validate_proxy_address(text)
+        if ok:
+            self.proxy_hint.setVisible(False)
+            self.proxy_hint.setText("")
+        else:
+            self.proxy_hint.setText(msg)
+            self.proxy_hint.setVisible(True)
+
+    def _save_settings(self) -> bool:
+        ok, msg = validate_proxy_address(self.proxy_address_edit.text())
+        if self.check_cloud_use_proxy.isChecked() and not ok:
+            QMessageBox.warning(self, "代理地址无效", msg)
+            return False
+
         close_value = self.combo_close_action.currentData()
         if close_value == "ask":
             Settings().set("closeToTray", None)
@@ -673,6 +705,7 @@ class SettingsDialog(QDialog):
         Settings().set("cloudSyncOnLogin", self.check_cloud_sync_login.isChecked())
         Settings().set("cloudAutoUploadOnClose", self.check_cloud_auto_upload.isChecked())
         Settings().set("useSystemProxy", self.check_cloud_use_proxy.isChecked())
+        Settings().set("proxyAddress", self.proxy_address_edit.text().strip())
 
         if autostart.is_available():
             if self.check_autostart.isChecked():
@@ -705,6 +738,8 @@ class SettingsDialog(QDialog):
             if hasattr(self.parent(), "_refresh_table"):
                 self.parent()._refresh_table(skip_width_hint=True)
 
+        return True
+
     def _on_apply(self):
         self._save_settings()
 
@@ -736,6 +771,7 @@ class SettingsDialog(QDialog):
         self.check_cloud_sync_login.setChecked(False)
         self.check_cloud_auto_upload.setChecked(False)
         self.check_cloud_use_proxy.setChecked(False)
+        self.proxy_address_edit.setText("")
         self.radio_system.setChecked(True)
         self.radio_fmt_english.setChecked(True)
 
@@ -751,8 +787,8 @@ class SettingsDialog(QDialog):
         QMessageBox.information(self, "已恢复", "设置已恢复为默认值。")
 
     def _on_accept(self):
-        self._save_settings()
-        self.accept()
+        if self._save_settings():
+            self.accept()
 
     def _open_zoom_dialog(self):
         dialog = ZoomDialog(self, self.parent())

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QSystemTrayIcon,
     QMenu, QStyle, QToolBar, QSizePolicy, QLineEdit, QButtonGroup,
     QGraphicsDropShadowEffect, QInputDialog, QColorDialog, QMessageBox,
-    QWidgetAction, QStackedWidget
+    QWidgetAction, QStackedWidget, QToolButton
 )
 
 from db.repository import AppRepository
@@ -143,6 +143,67 @@ def _themed_icon(svg_path, color):
     return QIcon()
 
 
+def _toolbar_qss(is_dark: bool = False) -> str:
+    """工具栏统一样式（单一来源，避免初始化与主题刷新两处重复漂移）。"""
+    if is_dark:
+        ext_bg, ext_hover, ext_border = (
+            "rgba(148, 163, 184, 0.14)",
+            "rgba(148, 163, 184, 0.28)",
+            "rgba(148, 163, 184, 0.35)",
+        )
+    else:
+        ext_bg, ext_hover, ext_border = (
+            "rgba(15, 23, 42, 0.06)",
+            "rgba(15, 23, 42, 0.12)",
+            "rgba(15, 23, 42, 0.15)",
+        )
+    return f"""
+        QToolBar QToolButton {{
+            min-height: 48px;
+            max-height: 48px;
+            padding: 0 6px;
+            margin: 0;
+        }}
+
+        QToolBar QPushButton {{
+            min-height: 48px;
+            max-height: 48px;
+            padding: 0 8px;
+            margin: 0;
+        }}
+
+        QToolBar QLineEdit {{
+            min-height: 48px;
+            max-height: 48px;
+            padding: 0 6px;
+            margin: 0;
+        }}
+
+        QToolBar QLabel {{
+            min-height: 48px;
+            max-height: 48px;
+            padding: 0 2px;
+            margin: 0;
+        }}
+
+        QToolBarExtension {{
+            min-width: 30px;
+            max-width: 30px;
+            min-height: 48px;
+            max-height: 48px;
+            padding: 0;
+            margin: 0;
+            background: {ext_bg};
+            border: 1px solid {ext_border};
+            border-radius: 6px;
+        }}
+
+        QToolBarExtension:hover {{
+            background: {ext_hover};
+        }}
+    """
+
+
 class PickRightClickBlocker(QObject):
     right_cancel_requested = Signal()
 
@@ -173,7 +234,7 @@ class Mywindow(QMainWindow):
         # ---- UI 初始化 ----
         self.setWindowTitle("Kokoro Journey")
         self.resize(1200, 675)
-        self.setMinimumSize(800, 500)
+        self.setMinimumSize(800, 600)
         self._spacers = []
 
         central = QWidget(self)
@@ -190,52 +251,7 @@ class Mywindow(QMainWindow):
         toolbar.setIconSize(QSize(27, 27))
         toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
         toolbar.layout().setSpacing(1)
-        toolbar.setStyleSheet("""
-            QToolBar QToolButton {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 6px;
-                margin: 0;
-            }
-
-            QToolBar QPushButton {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 8px;
-                margin: 0;
-            }
-
-            QToolBar QLineEdit {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 6px;
-                margin: 0;
-            }
-
-            QToolBar QLabel {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 2px;
-                margin: 0;
-            }
-
-            QToolBarExtension {
-                min-height: 52px;
-                max-height: 52px;
-                padding: 0;
-                margin: 0;
-                background: transparent;
-                border: none;
-                border-radius: 0;
-            }
-
-            QToolBarExtension::menu-button {
-                padding: 0;
-                margin: 0;
-                background: transparent;
-                border: none;
-            }
-        """)
+        toolbar.setStyleSheet(_toolbar_qss(False))
         toolbar.setMinimumHeight(64)
         toolbar.layout().setAlignment(Qt.AlignVCenter)
         
@@ -288,12 +304,12 @@ class Mywindow(QMainWindow):
         toolbar.addWidget(self._add_spacer(3))
         self._rebuild_group_buttons()
         self.group_buttons.buttonClicked.connect(self._on_group_changed)
-        QTimer.singleShot(0, self._layout_group_buttons)
+        QTimer.singleShot(0, self._schedule_toolbar_relayout)
 
         self.search_edit = ToolbarSearchEdit()
         self.search_edit.setPlaceholderText("搜索名称...")
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setMinimumWidth(80)
+        self.search_edit.setMinimumWidth(60)
         self.search_edit.setFixedHeight(48)
         self.search_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.search_edit.setToolTip("按应用名称或路径搜索，支持多个关键词")
@@ -313,21 +329,26 @@ class Mywindow(QMainWindow):
         toolbar.addWidget(self.btn_analysis)
         toolbar.addWidget(self._add_spacer(3))
 
-        self.user_show = QLabel("未登录")
-        self.user_show.setFixedHeight(48)
-        self.user_show.setAlignment(Qt.AlignCenter)
-        self.user_show.setObjectName("user_show")
-        self.user_show.setProperty("logged", False)
-        self.user_show.setToolTip("当前登录状态")
-        toolbar.addWidget(self.user_show)
+        # ---- 账号入口：账号按钮 + 下拉菜单（登录/未登录共用）----
+        self.account_button = QPushButton("登录")
+        self.account_button.setObjectName("account_button")
+        self.account_button.setFixedHeight(48)
+        self.account_button.setCursor(Qt.PointingHandCursor)
+        self.account_button.setToolTip("账号与云存档")
+        self.account_button.setProperty("logged", False)
+        self.account_button.clicked.connect(self._on_account_clicked)
+        toolbar.addWidget(self.account_button)
         toolbar.addWidget(self._add_spacer(3))
 
-        self.login_action = toolbar.addAction("登录")
-        self.login_action.setToolTip("登录以同步数据到云端")
-        self.logout_action = toolbar.addAction("退出")
-        self.logout_action.setToolTip("退出当前账号")
-        self.logout_action.setVisible(False)
-        toolbar.addWidget(self._add_spacer(3))
+        self._account_menu = QMenu(self)
+        self.act_cloud_save = self._account_menu.addAction("云存档…")
+        self.act_cloud_save.triggered.connect(self.open_personal_center)
+        self.act_user_center = self._account_menu.addAction("用户中心…")
+        self.act_user_center.setEnabled(False)
+        self.act_user_center.setToolTip("即将推出")
+        self._account_menu.addSeparator()
+        self.act_logout = self._account_menu.addAction("退出登录")
+        self.act_logout.triggered.connect(self._logout)
 
         self.settings_button = QPushButton()
         self.settings_button.setToolTip("设置")
@@ -378,7 +399,7 @@ class Mywindow(QMainWindow):
         a = QAction("设置…", self)
         a.triggered.connect(self.open_settings_dialog)
         tm.addAction(a)
-        a = QAction("个人中心…", self)
+        a = QAction("云存档…", self)
         a.triggered.connect(self.open_personal_center)
         tm.addAction(a)
         a = QAction("数据转移…", self)
@@ -484,8 +505,6 @@ class Mywindow(QMainWindow):
         self.search_edit.textChanged.connect(self._apply_table_search)
         self.btn_monitor_toggle.clicked.connect(self._toggle_monitor)
         self.settings_button.clicked.connect(self.open_settings_dialog)
-        self.login_action.triggered.connect(self.open_login_dialog)
-        self.logout_action.triggered.connect(self._logout)
         self.btn_stats.clicked.connect(self.open_stats)
         self.btn_analysis.clicked.connect(self.open_analysis)
 
@@ -533,12 +552,12 @@ class Mywindow(QMainWindow):
         elif available_width >= 950:
             spacer_width = 2
             show_secondary = True
-        elif available_width >= 800:
+        elif available_width >= 820:
             spacer_width = 1
             show_secondary = True
         else:
             spacer_width = 0
-            show_secondary = False
+            show_secondary = True
 
         for spacer in self._spacers:
             spacer.setFixedWidth(spacer_width)
@@ -550,10 +569,68 @@ class Mywindow(QMainWindow):
         if hasattr(self, "btn_analysis"):
             self.btn_analysis.setVisible(show_secondary)
 
+    def _is_dark_theme(self) -> bool:
+        mode = Settings().get("themeMode", "system")
+        if mode == "dark":
+            return True
+        if mode == "system":
+            return get_system_theme() == "dark"
+        return False
+
+    @staticmethod
+    def _make_arrow_icon(color: str) -> QIcon:
+        pixmap = QPixmap(12, 16)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(color))
+        painter.drawPolygon(QPolygon([QPoint(2, 4), QPoint(10, 4), QPoint(6, 10)]))
+        painter.end()
+        return QIcon(pixmap)
+
+    def _style_toolbar_extension(self) -> None:
+        """让 QToolBar 原生扩展按钮可见：显式主题箭头 + tooltip + 手型光标。
+
+        该按钮由 QToolBar 在需要溢出时才创建，因此每次布局后都补一次。
+        """
+        arrow_color = "#e2e8f0" if self._is_dark_theme() else "#94a3b8"
+        icon = self._make_arrow_icon(arrow_color)
+        for widget in self._toolbar.findChildren(QToolButton):
+            if "Extension" not in widget.metaObject().className():
+                continue
+            widget.setArrowType(Qt.NoArrow)
+            widget.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            widget.setIcon(icon)
+            widget.setToolTip("更多")
+            widget.setCursor(Qt.PointingHandCursor)
+
+    def _relayout_toolbar(self) -> None:
+        self._adjust_toolbar_layout()
+        self._layout_group_buttons()
+        try:
+            self._toolbar.layout().activate()
+            self._toolbar.updateGeometry()
+        except Exception:
+            pass
+        self._style_toolbar_extension()
+
+    def _deferred_relayout(self) -> None:
+        self._toolbar_relayout_pending = False
+        self._relayout_toolbar()
+
+    def _schedule_toolbar_relayout(self) -> None:
+        """合并多次 resize，在 Qt 自身布局之后再做一次，避免溢出时序竞争。"""
+        if getattr(self, "_toolbar_relayout_pending", False):
+            return
+        self._toolbar_relayout_pending = True
+        QTimer.singleShot(0, self._deferred_relayout)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._adjust_toolbar_layout()
         self._layout_group_buttons()
+        self._schedule_toolbar_relayout()
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -686,6 +763,7 @@ class Mywindow(QMainWindow):
 
         self._hidden_group_buttons = []
         self._layout_group_buttons()
+        self._schedule_toolbar_relayout()
 
     def _available_group_width(self):
         """计算分组区可用的横向宽度（固定预留其它控件，避免折叠抖动）。"""
@@ -745,6 +823,7 @@ class Mywindow(QMainWindow):
 
             self._hidden_group_buttons = hidden
             if overflow is None:
+                self._clamp_group_container_width()
                 return
             active_hidden = (
                 self._current_group_id is not None
@@ -771,8 +850,33 @@ class Mywindow(QMainWindow):
                 overflow.setToolTip("更多分组")
                 overflow.setFixedWidth(40)
                 overflow.setChecked(False)
+            self._clamp_group_container_width()
         finally:
             self._laying_out = False
+
+    def _clamp_group_container_width(self) -> None:
+        """把分组容器宽度钳定为其可见子项之和，避免把后续固定控件挤出工具栏。
+
+        分组 chip 的真正收缩/溢出由 _layout_group_buttons 完成；这里只是让容器的
+        sizeHint 与实际可见内容一致，防止 QToolBar 的溢出判定把账号/设置挤走。
+        """
+        container = getattr(self, "_group_btn_container", None)
+        layout = getattr(self, "_group_btn_layout", None)
+        if container is None or layout is None:
+            return
+        spacing = layout.spacing()
+        used = 0
+        count = 0
+        for i in range(layout.count()):
+            w = layout.itemAt(i).widget()
+            if w is None or not w.isVisible():
+                continue
+            used += w.sizeHint().width()
+            count += 1
+        if count > 1:
+            used += spacing * (count - 1)
+        floor = 44 + 40 + 40 + spacing * 2  # 下限：「全部」+「…」+「+」
+        container.setFixedWidth(max(floor, used))
 
     def _show_group_overflow_menu(self):
         """弹出被折叠的分组菜单。"""
@@ -1288,15 +1392,21 @@ class Mywindow(QMainWindow):
     def _apply_login_success(self, token, username):
         self.token = token
         self.username = username
-        self.user_show.setText(username)
-        self.user_show.setProperty("logged", True)
-        self.user_show.style().unpolish(self.user_show)
-        self.user_show.style().polish(self.user_show)
-        self.login_action.setVisible(False)
-        self.logout_action.setVisible(True)
-        print("[MainWindow] UI 已更新: 显示用户名, 隐藏登录按钮, 显示退出按钮")
+        self.account_button.setText(f"{username} ▾")
+        self.account_button.setProperty("logged", True)
+        self.account_button.style().unpolish(self.account_button)
+        self.account_button.style().polish(self.account_button)
+        print("[MainWindow] UI 已更新: 账号按钮显示用户名")
         self.run_immediate_sync()
         self._maybe_cloud_sync_on_login()
+
+    def _on_account_clicked(self):
+        """账号按钮：未登录→登录；已登录→弹出账号菜单。"""
+        if not self.token:
+            self.open_login_dialog()
+            return
+        pos = self.account_button.mapToGlobal(self.account_button.rect().bottomLeft())
+        self._account_menu.exec(pos)
 
     def _try_auto_login(self):
         if self.token:
@@ -1329,12 +1439,10 @@ class Mywindow(QMainWindow):
         print("[MainWindow] 用户点击退出登录")
         self.token = None
         self.username = None
-        self.user_show.setText("未登录")
-        self.user_show.setProperty("logged", False)
-        self.user_show.style().unpolish(self.user_show)
-        self.user_show.style().polish(self.user_show)
-        self.login_action.setVisible(True)
-        self.logout_action.setVisible(False)
+        self.account_button.setText("登录")
+        self.account_button.setProperty("logged", False)
+        self.account_button.style().unpolish(self.account_button)
+        self.account_button.style().polish(self.account_button)
         self.statusBar().showMessage("已退出登录", 3000)
         print("[MainWindow] 退出登录完成, UI 已恢复")
 
@@ -1357,72 +1465,8 @@ class Mywindow(QMainWindow):
             _themed_icon(os.path.join(self._base, "icons", "gear.svg"), gear_color)
         )
 
-        arrow_color = "#e2e8f0" if is_dark else "#94a3b8"
-
-        # 通过 findChildren 查找扩展按钮并设置图标
-        extensions = self._toolbar.findChildren(QWidget)
-        for widget in extensions:
-            class_name = widget.metaObject().className()
-            if "Extension" in class_name and hasattr(widget, 'setIcon'):
-                # 使用 Qt 绘图 API 创建箭头图标
-                pixmap = QPixmap(12, 16)
-                pixmap.fill(Qt.transparent)
-                painter = QPainter(pixmap)
-                painter.setRenderHint(QPainter.Antialiasing)
-                painter.setPen(Qt.NoPen)
-                painter.setBrush(QColor(arrow_color))
-                painter.drawPolygon(QPolygon([QPoint(2, 4), QPoint(10, 4), QPoint(6, 10)]))
-                painter.end()
-                icon = QIcon(pixmap)
-                widget.setIcon(icon)
-
-        base_style = """
-            QToolBar QToolButton {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 6px;
-                margin: 0;
-            }
-
-            QToolBar QPushButton {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 8px;
-                margin: 0;
-            }
-
-            QToolBar QLineEdit {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 6px;
-                margin: 0;
-            }
-
-            QToolBar QLabel {
-                min-height: 48px;
-                max-height: 48px;
-                padding: 0 2px;
-                margin: 0;
-            }
-
-            QToolBarExtension {
-                min-height: 52px;
-                max-height: 52px;
-                padding: 0;
-                margin: 0;
-                background: transparent;
-                border: none;
-                border-radius: 0;
-            }
-
-            QToolBarExtension::menu-button {
-                padding: 0;
-                margin: 0;
-                background: transparent;
-                border: none;
-            }
-        """
-        self._toolbar.setStyleSheet(base_style)
+        self._toolbar.setStyleSheet(_toolbar_qss(is_dark))
+        self._style_toolbar_extension()
 
         if hasattr(self, "table_manager"):
             self.table_manager.set_dark_mode(is_dark)
@@ -1446,19 +1490,12 @@ class Mywindow(QMainWindow):
 
     def open_personal_center(self):
         if not self.token:
-            QMessageBox.information(self, "提示", "请先登录后再进入个人中心。")
+            QMessageBox.information(self, "提示", "请先登录后再打开云存档。")
             return
         from ui.personal_center import PersonalCenter
         PersonalCenter(self, self.token, self.username).exec()
 
     def eventFilter(self, obj, event):
-        if (
-            obj is getattr(self, "user_show", None)
-            and event.type() == QEvent.MouseButtonPress
-            and event.button() == Qt.LeftButton
-        ):
-            self.open_personal_center()
-            return True
         if (
             isinstance(obj, QWidget)
             and event.type() == QEvent.Wheel

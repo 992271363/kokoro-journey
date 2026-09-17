@@ -369,7 +369,7 @@ class CloudGamesDialog(QDialog):
 class PersonalCenter(QDialog):
     def __init__(self, parent, token: str, username: str):
         super().__init__(parent)
-        self.setWindowTitle("个人中心")
+        self.setWindowTitle("云存档")
         self.resize(760, 460)
         self._token = token
         self._username = username

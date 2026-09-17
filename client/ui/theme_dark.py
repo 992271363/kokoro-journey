@@ -605,13 +605,20 @@ QSpinBox:focus {
     border-color: #3b82f6;
 }
 
-/* ---- 工具栏用户名标签 ---- */
-QLabel#user_show {
+/* ---- 工具栏账号按钮 ---- */
+QPushButton#account_button {
+    background: transparent;
+    border: none;
     color: #64748b;
     font-size: 13px;
+    padding: 0 8px;
 }
 
-QLabel#user_show[logged="true"] {
+QPushButton#account_button:hover {
+    color: #f1f5f9;
+}
+
+QPushButton#account_button[logged="true"] {
     color: #f1f5f9;
     font-weight: 500;
 }
