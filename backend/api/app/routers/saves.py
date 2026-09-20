@@ -70,9 +70,11 @@ def _get_committed_version(db: Session, game_id: int, version_id: int) -> models
 
 
 def _latest_committed(db: Session, game_id: int) -> Optional[models.ServerSaveVersion]:
+    """「最近写入的存档位」：按写入时间取最新一条已提交版本。"""
     return db.query(models.ServerSaveVersion).filter_by(
         game_id=game_id, status="committed"
-    ).order_by(models.ServerSaveVersion.version_number.desc()).first()
+    ).order_by(models.ServerSaveVersion.created_at.desc(),
+               models.ServerSaveVersion.id.desc()).first()
 
 
 def _game_view(game: models.ServerSaveGame, latest: Optional[models.ServerSaveVersion]) -> dict:
@@ -172,7 +174,36 @@ def delete_game(
     return {"ok": True}
 
 
-# ---------------- 版本 ----------------
+# ---------------- 存档位（固定 10 个） ----------------
+
+@router.get("/games/{game_id}/slots", response_model=List[schemas.SaveSlotView])
+def list_slots(
+    game_id: int,
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """返回固定存档位列表（1..SLOT_COUNT）；空槽各字段为 null。"""
+    _get_own_game(db, current_user, game_id)
+    _require_device(db, current_user, x_device_id)
+    rows = db.query(models.ServerSaveVersion).filter_by(
+        game_id=game_id, status="committed"
+    ).all()
+    by_slot = {v.slot: v for v in rows if v.slot is not None}
+    out = []
+    for slot in range(1, save_storage.SLOT_COUNT + 1):
+        v = by_slot.get(slot)
+        out.append({
+            "slot": slot,
+            "version_id": v.id if v else None,
+            "created_at": v.created_at if v else None,
+            "total_size": v.total_size if v else None,
+            "file_count": v.file_count if v else None,
+        })
+    return out
+
+
+# ---------------- 版本（存档位覆盖写入） ----------------
 
 @router.post("/games/{game_id}/versions", status_code=status.HTTP_201_CREATED)
 def begin_version(
@@ -185,11 +216,20 @@ def begin_version(
     game = _get_own_game(db, current_user, game_id)
     _require_device(db, current_user, x_device_id)
 
+    slot = payload.slot
+    if slot is None or not (1 <= slot <= save_storage.SLOT_COUNT):
+        raise HTTPException(status_code=400, detail=f"存档位非法（应为 1..{save_storage.SLOT_COUNT}）")
+
     manifest = [m.model_dump() for m in payload.manifest]
     try:
         save_storage.validate_manifest(manifest)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # 该槽位当前已提交版本（覆盖目标 / 增量复用基准）
+    base = db.query(models.ServerSaveVersion).filter_by(
+        game_id=game_id, slot=slot, status="committed"
+    ).first()
 
     max_no = db.query(func.max(models.ServerSaveVersion.version_number)).filter_by(
         game_id=game_id
@@ -199,6 +239,7 @@ def begin_version(
     ver = models.ServerSaveVersion(
         game_id=game_id,
         version_number=version_number,
+        slot=slot,
         status="pending",
         total_size=sum(int(m["size"]) for m in manifest),
         file_count=len(manifest),
@@ -213,9 +254,7 @@ def begin_version(
     save_storage.remove_tree(tdir)
     save_storage.ensure_dir(tdir)
 
-    # 增量复用：与上一已提交版本 path+sha256 相同的文件，直接硬链接进临时目录，
-    # 免去重新上传；客户端只上传 upload_paths 里的文件。
-    base = _latest_committed(db, game_id)
+    # 增量复用：以「该槽位当前内容」为基准，path+sha256 相同则硬链接进临时目录。
     base_files: dict[str, str] = {}
     base_dir = None
     if base is not None:
@@ -249,10 +288,19 @@ def begin_version(
         ))
     db.commit()
     logger.info(
-        f"用户 {current_user.username} 游戏 {game.name} 开启版本 v{version_number} "
-        f"(id={ver.id})，需上传 {len(upload_paths)}/{len(manifest)}"
+        f"用户 {current_user.username} 游戏 {game.name} 开启存档位 {slot} "
+        f"(版本 id={ver.id})，需上传 {len(upload_paths)}/{len(manifest)}"
     )
-    return {"versionId": ver.id, "versionNumber": version_number, "uploadPaths": upload_paths}
+    return {
+        "versionId": ver.id,
+        "versionNumber": version_number,
+        "slot": slot,
+        "occupied": base is not None,
+        "existing": ({"versionId": base.id, "createdAt": base.created_at,
+                      "totalSize": base.total_size, "fileCount": base.file_count}
+                     if base is not None else None),
+        "uploadPaths": upload_paths,
+    }
 
 
 async def _store_file(user_id: int, game_id: int, version_id: int,
@@ -392,33 +440,42 @@ def commit_version(
             raise HTTPException(status_code=400, detail=f"sha256 不符: {f.relative_path}")
 
     vdir = save_storage.version_dir(current_user.id, game_id, ver.version_number)
-    save_storage.atomic_commit(tdir, vdir)
+    save_storage.commit_replace(tdir, vdir)
+
+    # 覆盖语义：删除该槽位原有的已提交版本（其它槽位不受影响）。
+    old_versions = db.query(models.ServerSaveVersion).filter(
+        models.ServerSaveVersion.game_id == game_id,
+        models.ServerSaveVersion.slot == ver.slot,
+        models.ServerSaveVersion.id != ver.id,
+    ).all()
+    for old in old_versions:
+        db.query(models.ServerSaveFile).filter_by(version_id=old.id).delete(
+            synchronize_session=False)
+        save_storage.remove_tree(
+            save_storage.version_dir(current_user.id, game_id, old.version_number))
+        db.delete(old)
 
     ver.status = "committed"
     ver.created_at = _now()
     game.updated_at = _now()
     db.commit()
 
-    gpath = save_storage.game_dir(current_user.id, game_id)
-    pruned = save_storage.prune_versions(gpath, keep=save_storage.KEEP_VERSIONS)
-    if pruned:
-        db.query(models.ServerSaveVersion).filter(
-            models.ServerSaveVersion.game_id == game_id,
-            models.ServerSaveVersion.version_number.in_(pruned),
-        ).delete(synchronize_session=False)
-        db.commit()
-
-    logger.info(f"用户 {current_user.username} 游戏 {game.name} 提交版本 v{ver.version_number}；剪裁 {pruned}")
-    return {"ok": True, "versionNumber": ver.version_number, "pruned": pruned}
+    logger.info(
+        f"用户 {current_user.username} 游戏 {game.name} 写入存档位 {ver.slot} "
+        f"(版本 id={ver.id})，替换旧版本 {[o.id for o in old_versions]}"
+    )
+    return {"ok": True, "versionNumber": ver.version_number, "slot": ver.slot,
+            "replaced": [o.id for o in old_versions]}
 
 
-@router.get("/games/{game_id}/versions")
+@router.get("/games/{game_id}/versions", deprecated=True)
 def list_versions(
     game_id: int,
     x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    """【已废弃】请改用 `GET /games/{id}/slots`；保留以兼容旧客户端。"""
     _get_own_game(db, current_user, game_id)
     _require_device(db, current_user, x_device_id)
     versions = db.query(models.ServerSaveVersion).filter_by(
@@ -524,7 +581,7 @@ def download_version_files_batch(
     return Response(content=buf.getvalue(), media_type="application/zip")
 
 
-@router.delete("/games/{game_id}/versions/{version_id}")
+@router.delete("/games/{game_id}/versions/{version_id}", deprecated=True)
 def delete_version(
     game_id: int,
     version_id: int,
@@ -532,6 +589,7 @@ def delete_version(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    """【已废弃】存档位模型下由覆盖写入取代；保留以兼容旧客户端。"""
     _get_own_game(db, current_user, game_id)
     _require_device(db, current_user, x_device_id)
     ver = db.query(models.ServerSaveVersion).filter_by(id=version_id, game_id=game_id).first()

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMessageBox, QFileDialog, QFormLayout, QListWidget,
     QListWidgetItem, QDialogButtonBox,
+    QFrame, QGridLayout, QRadioButton, QButtonGroup, QStackedWidget,
 )
 
 from db.repository import AppRepository, AppInfo
@@ -366,6 +367,155 @@ class CloudGamesDialog(QDialog):
         self.accept()
 
 
+class SlotCard(QFrame):
+    """存档位卡片：左上角单选圆点，卡内显示上传时间/文件大小；空槽用常规样式。"""
+
+    def __init__(self, slot: int, info, parent=None):
+        super().__init__(parent)
+        self.slot = slot
+        occupied = bool(info and info.get("versionId"))
+        self.setObjectName("slot_card")
+        self.setProperty("slot_occupied", occupied)
+        self.setFrameShape(QFrame.StyledPanel)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 8)
+        layout.setSpacing(4)
+
+        self.radio = QRadioButton(f"存档位 {slot}")
+        self.radio.setObjectName("slot_radio")
+        layout.addWidget(self.radio)
+
+        if occupied:
+            ts = str(info.get("createdAt") or "")[:19].replace("T", " ")
+            self.time_label = QLabel(ts or "—")
+            self.size_label = QLabel(_fmt_size(info.get("totalSize", 0)))
+        else:
+            self.time_label = QLabel("空")
+            self.size_label = QLabel("")
+        for lbl in (self.time_label, self.size_label):
+            lbl.setProperty("role", "muted")
+            layout.addWidget(lbl)
+        layout.addStretch()
+
+    def mousePressEvent(self, event):
+        self.radio.setChecked(True)
+        super().mousePressEvent(event)
+
+
+class SlotPickerDialog(QDialog):
+    """存档位选择：每页 5 个、共 2 页；单选；上传/下载/查看三种用途共用。"""
+
+    _TEXT = {
+        "upload": ("选择上传存档位", "选择一个存档位写入本地存档；已占用的槽位会被覆盖。"),
+        "download": ("选择下载存档位", "选择一个存档位下载到本地；将覆盖本地存档（覆盖前会备份）。"),
+        "view": ("查看清单", "选择要查看文件清单的存档位。"),
+    }
+
+    def __init__(self, parent, slots, mode: str = "upload"):
+        super().__init__(parent)
+        title, desc = self._TEXT.get(mode, self._TEXT["upload"])
+        self.setWindowTitle(title)
+        self.resize(560, 360)
+        self.mode = mode
+        self.selected = None
+        self._slots = {s.get("slot"): s for s in (slots or [])}
+
+        layout = QVBoxLayout(self)
+        desc_label = QLabel(desc)
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+
+        self._pages = QStackedWidget()
+        layout.addWidget(self._pages, stretch=1)
+
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        page_size = ss.SLOT_PAGE_SIZE
+        total = ss.SLOT_COUNT
+        self._page_count = (total + page_size - 1) // page_size
+        for p in range(self._page_count):
+            page = QFrame()
+            grid = QGridLayout(page)
+            grid.setSpacing(8)
+            for col in range(page_size):
+                slot = p * page_size + col + 1
+                if slot > total:
+                    break
+                card = SlotCard(slot, self._slots.get(slot))
+                self._group.addButton(card.radio, slot)
+                grid.addWidget(card, 0, col)
+            self._pages.addWidget(page)
+
+        self._group.buttonToggled.connect(self._on_toggled)
+
+        nav = QHBoxLayout()
+        self.btn_prev = QPushButton("上一页")
+        self.btn_next = QPushButton("下一页")
+        self.btn_prev.clicked.connect(lambda: self._goto(self._pages.currentIndex() - 1))
+        self.btn_next.clicked.connect(lambda: self._goto(self._pages.currentIndex() + 1))
+        nav.addWidget(self.btn_prev)
+        self.page_label = QLabel("")
+        nav.addWidget(self.page_label)
+        nav.addWidget(self.btn_next)
+        nav.addStretch()
+        layout.addLayout(nav)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._on_ok)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._goto(0)
+
+    def _goto(self, index: int):
+        index = max(0, min(self._page_count - 1, index))
+        self._pages.setCurrentIndex(index)
+        self.page_label.setText(f"{index + 1} / {self._page_count}")
+        self.btn_prev.setEnabled(index > 0)
+        self.btn_next.setEnabled(index < self._page_count - 1)
+
+    def _on_toggled(self, button, checked):
+        if checked:
+            self.selected = self._group.id(button)
+
+    def _on_ok(self):
+        if self.selected is None:
+            QMessageBox.information(self, "提示", "请选择一个存档位。")
+            return
+        self.accept()
+
+    def selected_slot(self):
+        return self.selected
+
+    def selected_info(self):
+        return self._slots.get(self.selected)
+
+
+class SlotFilesDialog(QDialog):
+    """查看某个存档位（版本）的文件清单。"""
+
+    def __init__(self, parent, token, server_id, version_id, slot=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"存档位 {slot} 文件清单" if slot else "文件清单")
+        self.resize(520, 420)
+
+        layout = QVBoxLayout(self)
+        self.file_list = QListWidget()
+        layout.addWidget(self.file_list)
+
+        ok, files = ss.list_version_files(token, server_id, version_id)
+        if not ok:
+            self.file_list.addItem(ss_http_msg(files))
+        else:
+            for f in files:
+                self.file_list.addItem(f"{f['path']}  ({_fmt_size(f['size'])})")
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+
 class PersonalCenter(QDialog):
     def __init__(self, parent, token: str, username: str):
         super().__init__(parent)
@@ -374,6 +524,7 @@ class PersonalCenter(QDialog):
         self._token = token
         self._username = username
         self._cloud: dict = {}
+        self._slots: dict = {}
         self._thread = None
         self._worker = None
 
@@ -405,8 +556,8 @@ class PersonalCenter(QDialog):
         self.btn_upload.setToolTip("用本地存档新建一个云端版本（不改本地文件）")
         self.btn_download = QPushButton("下载到本地")
         self.btn_download.setToolTip("下载云端最新版本并覆盖本地（覆盖前自动备份）")
-        self.btn_view = QPushButton("查看云端版本…")
-        self.btn_view.setToolTip("查看该条目的云端历史版本与文件")
+        self.btn_view = QPushButton("查看清单…")
+        self.btn_view.setToolTip("查看某个存档位内的文件清单")
         self.btn_unbind = QPushButton("解除云端关联")
         self.btn_unbind.setToolTip("只解除关联，不删除本地文件与云端存档")
         self.btn_del_remote = QPushButton("删除云端存档")
@@ -444,26 +595,38 @@ class PersonalCenter(QDialog):
             ok, res = ss.claim_device(self._token)
             if not ok:
                 self._cloud = {}
+                self._slots = {}
                 self._populate()
                 self.status_label.setText(ss_http_msg(res))
                 return
             ok, res = ss.list_games(self._token)
             if not ok:
                 self._cloud = {}
+                self._slots = {}
                 self._populate()
                 self.status_label.setText(ss_http_msg(res))
                 return
             self._cloud = {g["id"]: g for g in res}
+            slots = {}
+            for gid in self._cloud:
+                ok2, sl = ss.list_slots(self._token, gid)
+                slots[gid] = sl if ok2 else []
+            self._slots = slots
         self._populate()
         self.status_label.setText("")
 
+    def _game_slots(self, server_id):
+        return getattr(self, "_slots", {}).get(server_id, []) or []
+
     def _entry_status(self, entry):
-        state = sb.cloud_game_state(entry, self._cloud)
-        if state == sb.STATE_DELETED and entry.server_id is not None:
+        if entry.server_id is None:
+            return ss.STATUS_NOT_SYNCED, None
+        if entry.server_id not in self._cloud:
             return sb.STATE_DELETED, None
-        if state == sb.STATE_NO_VERSION:
+        slot_info = next((s for s in self._game_slots(entry.server_id)
+                          if s.get("slot") == entry.server_slot), None)
+        if slot_info is None or not slot_info.get("versionId"):
             return sb.STATE_NO_VERSION, None
-        cloud = self._cloud.get(entry.server_id) if entry.server_id else None
         try:
             if entry.local_path and os.path.isdir(entry.local_path):
                 local_changed = ss.tree_fingerprint(entry.local_path) != entry.local_fingerprint
@@ -471,11 +634,9 @@ class PersonalCenter(QDialog):
                 local_changed = True
         except Exception:
             local_changed = True
-        latest = cloud.get("latestVersion") if cloud else None
-        cloud_newer = bool(latest) and (entry.last_synced_version is None
-                                        or latest > entry.last_synced_version)
+        cloud_newer = slot_info.get("versionId") != entry.last_synced_version
         return ss.sync_status(local_changed, cloud_newer,
-                              entry.last_synced_version is not None), latest
+                              entry.last_synced_version is not None), slot_info.get("versionId")
 
     def _populate(self):
         entries = AppRepository.get_all_save_games()
@@ -561,10 +722,24 @@ class PersonalCenter(QDialog):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
 
-        self._pending_bind = (cloud_game, local_path, entries, bind_entry_id)
+        ok, slots = ss.list_slots(self._token, cloud_game["id"])
+        if not ok:
+            QMessageBox.warning(self, "提示", ss_http_msg(slots))
+            return
+        picker = SlotPickerDialog(self, slots, mode="download")
+        if picker.exec() != QDialog.Accepted:
+            return
+        info = picker.selected_info() or {}
+        if not info.get("versionId"):
+            QMessageBox.information(self, "提示", "该存档位为空。")
+            return
+
+        self._pending_bind = (cloud_game, local_path, entries, bind_entry_id,
+                              picker.selected_slot(), info.get("versionId"))
         self._busy(True, "正在下载...")
         self._run_worker(sb.download_cloud_game_to, self._on_cloud_bind_done,
-                         self._token, cloud_game, local_path, entries, bind_entry_id)
+                         self._token, cloud_game, local_path, entries, bind_entry_id,
+                         picker.selected_slot(), info.get("versionId"))
 
     def _ask_name_conflict(self, name):
         box = QMessageBox(self)
@@ -590,14 +765,13 @@ class PersonalCenter(QDialog):
         if not ok:
             if (res == ss.TAKEN_OVER and getattr(self, "_pending_bind", None)
                     and self._confirm_take_over()):
-                cloud_game, local_path, entries, bind_entry_id = self._pending_bind
                 self._busy(True, "正在下载...")
                 self._run_worker(sb.download_cloud_game_to, self._on_cloud_bind_done,
-                                 self._token, cloud_game, local_path, entries, bind_entry_id)
+                                 self._token, *self._pending_bind)
                 return
             QMessageBox.warning(self, "下载失败", ss_http_msg(res))
             return
-        QMessageBox.information(self, "完成", f"已下载并关联，版本 v{res['version']}。")
+        QMessageBox.information(self, "完成", f"已下载并关联（存档位 {res.get('slot')}）。")
         self.refresh()
 
     def _unbind(self):
@@ -626,19 +800,40 @@ class PersonalCenter(QDialog):
         entry = entry or self._selected_entry()
         if entry is None:
             return
-        status, _latest = self._entry_status(entry)
+        slots = self._game_slots(entry.server_id) if entry.server_id is not None else []
+        if not slots:
+            slots = [{"slot": i, "versionId": None, "createdAt": None,
+                      "totalSize": None, "fileCount": None}
+                     for i in range(1, ss.SLOT_COUNT + 1)]
+
+        dlg = SlotPickerDialog(self, slots, mode="upload")
+        if dlg.exec() != QDialog.Accepted:
+            return
+        slot = dlg.selected_slot()
+        info = dlg.selected_info() or {}
+        if info.get("versionId"):
+            ts = str(info.get("createdAt") or "")[:19].replace("T", " ")
+            if QMessageBox.question(
+                self, "覆盖存档位",
+                f"存档位 {slot} 已有存档（{ts}，{_fmt_size(info.get('totalSize', 0))}）。\n"
+                f"继续将覆盖该存档位，是否继续？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+
+        status, _ = self._entry_status(entry)
         if status == ss.STATUS_CONFLICT:
             reply = QMessageBox.question(
                 self, "冲突",
-                "本地与云端都有变化。\n是否用本地版本覆盖云端？（云端会保留历史版本）",
+                "本地与绑定的存档位都有变化。\n是否用本地版本覆盖所选存档位？",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply != QMessageBox.Yes:
                 return
         self._busy(True, "正在上传...")
         self._pending_upload_entry = entry
+        self._pending_upload_slot = slot
         self._run_worker(
             ss.upload_game, self._on_upload_done,
-            self._token, entry.local_path, entry.name, entry.server_id)
+            self._token, entry.local_path, entry.name, entry.server_id, slot)
 
     def _confirm_take_over(self) -> bool:
         """云端被其他设备占用时，询问是否在本机接管云同步。接管成功返回 True。"""
@@ -656,46 +851,41 @@ class PersonalCenter(QDialog):
 
     def _on_upload_done(self, ok, res):
         self._busy(False)
+        entry = getattr(self, "_pending_upload_entry", None)
         if not ok:
-            entry = getattr(self, "_pending_upload_entry", None)
             if res == ss.TAKEN_OVER and entry is not None and self._confirm_take_over():
                 self._upload(entry)
                 return
             QMessageBox.warning(self, "上传失败", ss_http_msg(res))
             return
-        entry = getattr(self, "_pending_upload_entry", None)
         if entry is not None:
             if entry.server_id is None:
                 AppRepository.set_save_game_server_id(entry.id, res["server_id"])
-            AppRepository.mark_save_game_synced(entry.id, res["version"], res["fingerprint"])
+            AppRepository.mark_save_game_synced(entry.id, res["version_id"],
+                                                res["fingerprint"], res["slot"])
         self.refresh()
-        QMessageBox.information(self, "上传成功", f"已上传为 v{res['version']}。")
+        QMessageBox.information(self, "上传成功", f"已写入存档位 {res['slot']}。")
 
     def _download_latest(self, entry=None):
         entry = entry or self._selected_entry()
         if entry is None or entry.server_id is None:
             return
-        cloud = self._cloud.get(entry.server_id)
-        latest = cloud.get("latestVersion") if cloud else None
-        if not latest:
-            QMessageBox.information(self, "提示", "云端暂无版本。")
+        slots = self._game_slots(entry.server_id)
+        if not slots:
+            QMessageBox.information(self, "提示", "云端暂无存档。")
             return
-        # 用 list_games 带回的 latestVersionId，省掉一次 list_versions 请求
-        self._download_version(entry, latest, cloud.get("latestVersionId"))
+        dlg = SlotPickerDialog(self, slots, mode="download")
+        if dlg.exec() != QDialog.Accepted:
+            return
+        info = dlg.selected_info() or {}
+        if not info.get("versionId"):
+            QMessageBox.information(self, "提示", "该存档位为空。")
+            return
+        self._download_slot(entry, dlg.selected_slot(), info.get("versionId"))
 
-    def _download_version(self, entry, version_number, version_id=None):
-        if version_id is None:
-            ok, versions = ss.list_versions(self._token, entry.server_id)
-            if not ok:
-                QMessageBox.warning(self, "提示", ss_http_msg(versions))
-                return
-            target = next((v for v in versions if v["versionNumber"] == version_number), None)
-            if target is None:
-                QMessageBox.warning(self, "提示", "未找到该版本。")
-                return
-            version_id = target["id"]
+    def _download_slot(self, entry, slot, version_id):
         self._busy(True, "正在下载...")
-        self._pending_download = (entry, version_number)
+        self._pending_download = (entry, slot, version_id)
         self._run_worker(
             ss.prepare_download, self._on_download_done,
             self._token, entry.server_id, version_id, entry.local_path)
@@ -705,15 +895,15 @@ class PersonalCenter(QDialog):
         if not ok:
             if (res == ss.TAKEN_OVER and getattr(self, "_pending_download", None)
                     and self._confirm_take_over()):
-                self._download_version(*self._pending_download)
+                self._download_slot(*self._pending_download)
                 return
             QMessageBox.warning(self, "下载失败", ss_http_msg(res))
             return
         tmp = res
-        entry, version_number = self._pending_download
+        entry, slot, version_id = self._pending_download
         reply = QMessageBox.question(
             self, "确认覆盖",
-            f"已下载并校验完成。\n是否用云端 v{version_number} 覆盖本地存档？\n"
+            f"已下载并校验完成。\n是否用云端「存档位 {slot}」覆盖本地存档？\n"
             f"（覆盖前会先备份当前本地存档）",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
@@ -724,9 +914,9 @@ class PersonalCenter(QDialog):
             ss.discard_download(tmp)
             QMessageBox.warning(self, "覆盖失败", ss_http_msg(backup))
             return
-        AppRepository.mark_save_game_synced(entry.id, version_number,
-                                            ss.tree_fingerprint(entry.local_path))
-        msg = f"已覆盖为 v{version_number}。"
+        AppRepository.mark_save_game_synced(entry.id, version_id,
+                                            ss.tree_fingerprint(entry.local_path), slot)
+        msg = f"已覆盖为存档位 {slot} 的存档。"
         if backup:
             msg += f"\n原存档已备份到：{backup}"
         QMessageBox.information(self, "完成", msg)
@@ -736,10 +926,19 @@ class PersonalCenter(QDialog):
         entry = self._selected_entry()
         if entry is None or entry.server_id is None:
             return
-        dlg = CloudVersionsDialog(
-            self, self._token, entry.server_id,
-            on_download=lambda v: self._download_version(entry, v["versionNumber"], v.get("id")))
-        dlg.exec()
+        slots = self._game_slots(entry.server_id)
+        if not slots:
+            QMessageBox.information(self, "提示", "云端暂无存档。")
+            return
+        dlg = SlotPickerDialog(self, slots, mode="view")
+        if dlg.exec() != QDialog.Accepted:
+            return
+        info = dlg.selected_info() or {}
+        if not info.get("versionId"):
+            QMessageBox.information(self, "提示", "该存档位为空。")
+            return
+        SlotFilesDialog(self, self._token, entry.server_id,
+                        info.get("versionId"), dlg.selected_slot()).exec()
 
     def _delete_remote(self):
         entry = self._selected_entry()

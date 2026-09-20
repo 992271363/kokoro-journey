@@ -23,7 +23,8 @@ from typing import Iterable
 # 服务端兜底上限（客户端会更早拦截）
 MAX_TOTAL_BYTES = 512 * 1024 * 1024   # 单版本总大小
 MAX_FILE_BYTES = 100 * 1024 * 1024    # 单文件硬上限
-KEEP_VERSIONS = 10                    # 每个游戏保留最近版本数
+KEEP_VERSIONS = 10                    # （已废弃）旧的版本保留数；现由固定存档位取代
+SLOT_COUNT = 10                       # 存档位数（每游戏固定 10 个，分 2 页展示）
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _VERSION_DIR_RE = re.compile(r"^v(\d+)$")
@@ -153,6 +154,30 @@ def atomic_commit(temp: str, final: str) -> None:
     parent = os.path.dirname(final)
     ensure_dir(parent)
     os.replace(temp, final)
+
+
+def commit_replace(temp: str, final: str) -> None:
+    """把临时目录覆盖到最终目录（存档位写入：同名槽位可被替换）。
+
+    先把已存在的 final 改名为备份，再把 temp 改名为 final；成功删除备份，
+    失败回滚备份。用于「存档位」语义下的槽位覆盖。
+    """
+    parent = os.path.dirname(final)
+    ensure_dir(parent)
+    backup = final + ".__old__"
+    remove_tree(backup)
+    moved_backup = False
+    if os.path.exists(final):
+        os.replace(final, backup)
+        moved_backup = True
+    try:
+        os.replace(temp, final)
+    except OSError:
+        if moved_backup and not os.path.exists(final):
+            os.replace(backup, final)
+        raise
+    if moved_backup:
+        remove_tree(backup)
 
 
 def list_version_numbers(game_path: str) -> list[int]:

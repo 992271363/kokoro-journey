@@ -33,6 +33,9 @@ MAX_FILE_BYTES = 90 * 1024 * 1024  # 客户端单文件硬拦截
 BATCH_MAX_BYTES = 8 * 1024 * 1024  # 单次批量请求携带的最大字节
 MAX_PARALLEL_BATCHES = 4           # 并发批次数
 
+SLOT_COUNT = 10     # 存档位总数（每游戏固定 10 个）
+SLOT_PAGE_SIZE = 5  # 选择界面每页显示 5 个
+
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = (1, 3, 9)  # 秒
 _NETWORK_ERRORS = (
@@ -297,12 +300,30 @@ def delete_version(token: str, server_id: int, version_id: int) -> Tuple[bool, o
     return _delete(token, f"/saves/games/{server_id}/versions/{version_id}")
 
 
-def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] = None,
-                progress_cb=None) -> Tuple[bool, object]:
-    """把本地目录作为新版本上传；server_id 为空时先创建远端游戏。
+def list_slots(token: str, server_id: int) -> Tuple[bool, object]:
+    """返回固定存档位列表（1..SLOT_COUNT）；空槽各字段为 None。"""
+    return _get_json(token, f"/saves/games/{server_id}/slots")
 
-    返回 (True, {"server_id", "version", "fingerprint"}) 或 (False, 错误)。
+
+def pick_auto_slot(slots) -> Optional[int]:
+    """自动上传选槽：数字最小的空槽；若无空槽，则选 createdAt 最旧的槽。"""
+    if not slots:
+        return None
+    empty_slots = [s.get("slot") for s in slots if not s.get("versionId")]
+    if empty_slots:
+        return min(empty_slots)
+    return min(slots, key=lambda s: (str(s.get("createdAt") or ""), s.get("slot") or 0)).get("slot")
+
+
+def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] = None,
+                slot: Optional[int] = None, progress_cb=None) -> Tuple[bool, object]:
+    """把本地目录写入指定存档位（slot）；server_id 为空时先创建远端游戏。
+
+    覆盖写入由服务端按槽位处理；返回 (True, {"server_id","slot","version","fingerprint"})
+    或 (False, 错误)。
     """
+    if slot is None:
+        return False, "未指定存档位"
     manifest = build_manifest(local_dir)
     ok, err = validate_client_manifest(manifest)
     if not ok:
@@ -318,13 +339,13 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
             server_id = res["id"]
 
     ok, res = _post_json(token, f"/saves/games/{server_id}/versions",
-                         {"manifest": manifest, "total_size": total})
+                         {"manifest": manifest, "total_size": total, "slot": slot})
     if not ok:
         return False, res
     vid = res["versionId"]
     vnum = res["versionNumber"]
 
-    # 增量：服务端会复用与上一版本 path+sha256 相同的文件，只回传需要上传的路径。
+    # 增量：服务端以「该槽位当前内容」为基准复用相同文件，只回传需上传的路径。
     # 兼容旧服务端：没有 uploadPaths 时按全量上传。
     upload_paths = res.get("uploadPaths")
     if upload_paths is None:
@@ -418,8 +439,8 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
     ok, res = _post_json(token, f"/saves/games/{server_id}/versions/{vid}/commit")
     if not ok:
         return False, res
-    return True, {"server_id": server_id, "version": vnum,
-                  "fingerprint": tree_fingerprint(local_dir)}
+    return True, {"server_id": server_id, "slot": slot, "version_id": vid,
+                  "version": vnum, "fingerprint": tree_fingerprint(local_dir)}
 
 
 def _set_mtime(path: str, mtime_ns) -> None:

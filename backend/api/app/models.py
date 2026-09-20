@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Date, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Date, Boolean, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -143,11 +143,17 @@ class ServerSaveVersion(Base):
     __table_args__ = (
         UniqueConstraint('game_id', 'version_number',
                          name='uix_server_save_version_game_number'),
+        # 同一槽位允许同时存在「旧 committed + 新 pending」两行（两阶段写入）；
+        # 「每槽至多一条 committed」由 commit_version 覆盖逻辑保证，故此处仅建普通索引。
+        Index('ix_server_save_version_game_slot', 'game_id', 'slot'),
     )
 
     id = Column(Integer, primary_key=True)
     game_id = Column(Integer, ForeignKey('server_save_games.id'), nullable=False, index=True)
     version_number = Column(Integer, nullable=False)
+
+    # 存档位（1..SLOT_COUNT）；旧数据迁移前为空。
+    slot = Column(Integer, nullable=True)
 
     status = Column(String(16), nullable=False, default='pending')  # pending | committed
     total_size = Column(BigInteger, nullable=False, default=0)

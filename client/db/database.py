@@ -56,6 +56,15 @@ def create_db_and_tables():
         except Exception:
             pass
 
+        # 云存档：本地条目记住使用的存档位（存量库补列）
+        try:
+            conn.execute(text(
+                "ALTER TABLE save_games ADD COLUMN server_slot INTEGER"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+
 
 def delete_database():
     if os.path.exists(db_path):

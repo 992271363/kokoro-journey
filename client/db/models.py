@@ -363,6 +363,7 @@ class SaveGame(Base):
     id = Column(Integer, primary_key=True)
 
     server_id = Column(Integer, nullable=True, index=True)
+    server_slot = Column(Integer, nullable=True)  # 上次同步使用的存档位（1..10）
     name = Column(String, nullable=False)
     local_path = Column(String, nullable=False)
     linked_app_path = Column(String, nullable=True)

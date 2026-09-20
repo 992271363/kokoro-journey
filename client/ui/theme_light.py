@@ -145,6 +145,17 @@ QPushButton[group_btn="true"][group_chip="true"] {
     text-align: left;
 }
 
+/* ---- 云存档：存档位卡片（已占用加深对比） ---- */
+QFrame#slot_card {
+    background-color: #ffffff;
+    border: 1px solid #e4e4e7;
+    border-radius: 8px;
+}
+QFrame#slot_card[slot_occupied="true"] {
+    background-color: #dbe7fb;
+    border-color: #93b4ef;
+}
+
 QPushButton[group_btn="true"]:hover {
     background-color: #ebebeb;
     border-color: #d4d4d8;

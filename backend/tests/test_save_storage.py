@@ -85,5 +85,22 @@ check("剪裁删除最旧版本", deleted == [1, 2])
 check("剪裁后保留 10 版", len(ss.list_version_numbers(gpath)) == 10)
 check("剪裁后最旧为 v3", ss.list_version_numbers(gpath)[0] == 3)
 
+# --- commit_replace（存档位覆盖写入） ---
+check("存档位总数为 10", ss.SLOT_COUNT == 10)
+u2, g2 = 7, 8
+td = ss.temp_dir(u2, g2, 1, root)
+ss.ensure_dir(td)
+with open(os.path.join(td, "new.sav"), "wb") as fh:
+    fh.write(b"NEW")
+vd = ss.version_dir(u2, g2, 5, root)
+ss.ensure_dir(vd)
+with open(os.path.join(vd, "old.sav"), "wb") as fh:
+    fh.write(b"OLD")
+ss.commit_replace(td, vd)
+check("覆盖提交: 新文件就位", os.path.isfile(os.path.join(vd, "new.sav")))
+check("覆盖提交: 旧文件被替换", not os.path.exists(os.path.join(vd, "old.sav")))
+check("覆盖提交: 临时目录消失", not os.path.exists(td))
+check("覆盖提交: 无残留备份", not os.path.exists(vd + ".__old__"))
+
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

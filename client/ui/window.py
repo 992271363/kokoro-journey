@@ -1173,8 +1173,9 @@ class Mywindow(QMainWindow):
             if ok:
                 if entry.server_id is None:
                     AppRepository.set_save_game_server_id(entry.id, res["server_id"])
-                AppRepository.mark_save_game_synced(entry.id, res["version"], res["fingerprint"])
-                self.update_status_bar(f"云存档：{entry.name} 已自动上传 v{res['version']}")
+                AppRepository.mark_save_game_synced(entry.id, res["version_id"],
+                                                    res["fingerprint"], res.get("slot"))
+                self.update_status_bar(f"云存档：{entry.name} 已自动上传（存档位 {res.get('slot')}）")
             else:
                 self.update_status_bar(f"云存档自动上传失败：{res}")
         finally:

@@ -111,6 +111,15 @@ class SaveFileItem(CamelAliasModel):
 class SaveVersionCreate(CamelAliasModel):
     manifest: List[SaveFileItem]
     total_size: int
+    slot: Optional[int] = None
+
+
+class SaveSlotView(CamelAliasModel):
+    slot: int
+    version_id: Optional[int] = None
+    created_at: Optional[datetime] = None
+    total_size: Optional[int] = None
+    file_count: Optional[int] = None
 
 
 class SaveGameCreate(CamelAliasModel):

@@ -135,13 +135,13 @@ with open(os.path.join(updir, "a.sav"), "wb") as f:
 
 fake = _FakeSession(fail_times=2)
 ss.get_session = lambda: fake
-ok_up, res_up = ss.upload_game("tok", updir, "G", server_id=1)
+ok_up, res_up = ss.upload_game("tok", updir, "G", server_id=1, slot=1)
 check("上传: 两次中断后重试成功", ok_up and res_up.get("version") == 1)
 check("上传: 文件请求共 3 次", fake.file_calls == 3)
 
 fake2 = _FakeSession(fail_times=99)
 ss.get_session = lambda: fake2
-ok_up2, res_up2 = ss.upload_game("tok", updir, "G", server_id=1)
+ok_up2, res_up2 = ss.upload_game("tok", updir, "G", server_id=1, slot=1)
 check("上传: 持续失败返回失败", not ok_up2)
 check("上传: 失败信息为友好中文", isinstance(res_up2, str) and "网络" in res_up2)
 
@@ -177,7 +177,7 @@ class _CloudFake:
 
 cloud = _CloudFake([{"id": 7, "name": "MyGame", "latestVersion": 1}])
 ss.get_session = lambda: cloud
-ok_reuse, res_reuse = ss.upload_game("tok", updir, "MyGame", server_id=None)
+ok_reuse, res_reuse = ss.upload_game("tok", updir, "MyGame", server_id=None, slot=1)
 check("同名复用远端 id", ok_reuse and res_reuse["server_id"] == 7)
 check("同名复用不再 create", cloud.created == 0)
 
@@ -255,7 +255,7 @@ class _IncrementalFake:
 
 inc = _IncrementalFake()
 ss.get_session = lambda: inc
-ok_inc, _res_inc = ss.upload_game("tok", d, "G", server_id=1)
+ok_inc, _res_inc = ss.upload_game("tok", d, "G", server_id=1, slot=1)
 check("增量: 只上传 uploadPaths 内文件", ok_inc and inc.uploaded == ["sub/a.sav"])
 
 
@@ -290,7 +290,7 @@ class _BatchFake:
 
 bf = _BatchFake()
 ss.get_session = lambda: bf
-ok_b, _res_b = ss.upload_game("tok", d, "G", server_id=1)
+ok_b, _res_b = ss.upload_game("tok", d, "G", server_id=1, slot=1)
 check("批量: 多文件合并进 1 次请求", ok_b and bf.batches == 1 and bf.single == 0)
 check("批量字段名为 files", bf.batch_field_names == ["files", "files"])
 
@@ -304,7 +304,7 @@ class _NoBatchFake(_BatchFake):
 
 nb = _NoBatchFake()
 ss.get_session = lambda: nb
-ok_nb, _res_nb = ss.upload_game("tok", d, "G", server_id=1)
+ok_nb, _res_nb = ss.upload_game("tok", d, "G", server_id=1, slot=1)
 check("批量回退: 无批量接口时逐文件上传", ok_nb and nb.batches == 0 and nb.single == 2)
 
 

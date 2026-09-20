@@ -64,10 +64,12 @@ digest = hashlib.sha256(content).hexdigest()
 manifest = {
     "manifest": [{"path": "save/a.sav", "size": len(content), "sha256": digest, "mtime_ns": 123}],
     "total_size": len(content),
+    "slot": 1,
 }
 r = client.post(f"/saves/games/{game_id}/versions", json=manifest, headers=H)
 check("开版本 201", r.status_code == 201)
 vid = r.json()["versionId"]
+check("开版本回显存档位", r.json()["slot"] == 1 and r.json()["occupied"] is False)
 
 r = client.post(
     f"/saves/games/{game_id}/versions/{vid}/files",
@@ -83,6 +85,13 @@ check("提交版本 200", r.status_code == 200)
 expected = os.path.join(_SAVES_DIR, str(uid), str(game_id), "v1", "save", "a.sav")
 check("版本文件已落盘", os.path.isfile(expected))
 
+# --- 存档位列表：固定 10 个，slot 1 已占用 ---
+r = client.get(f"/saves/games/{game_id}/slots", headers=H)
+check("存档位共 10 个", r.status_code == 200 and len(r.json()) == 10)
+_s1 = next(x for x in r.json() if x["slot"] == 1)
+check("槽位 1 已占用", _s1["versionId"] == vid and _s1["fileCount"] == 1)
+check("槽位 2 为空", next(x for x in r.json() if x["slot"] == 2)["versionId"] is None)
+
 # --- 列表 / 文件清单 / 下载 ---
 r = client.get(f"/saves/games/{game_id}/versions", headers=H)
 check("版本列表", r.status_code == 200 and len(r.json()) == 1 and r.json()[0]["versionNumber"] == 1)
@@ -94,14 +103,18 @@ r = client.get(f"/saves/games/{game_id}/versions/{vid}/files/download", params={
 check("下载内容一致", r.status_code == 200 and r.content == content)
 
 # --- 安全：路径穿越 / 超限 ---
-bad = {"manifest": [{"path": "../evil", "size": 1, "sha256": "a" * 64}], "total_size": 1}
+bad = {"manifest": [{"path": "../evil", "size": 1, "sha256": "a" * 64}], "total_size": 1, "slot": 1}
 check("路径穿越被拒", client.post(f"/saves/games/{game_id}/versions", json=bad, headers=H).status_code == 400)
 
-oversize_file = {"manifest": [{"path": "big.sav", "size": 100 * 1024 * 1024 + 1, "sha256": "a" * 64}], "total_size": 100 * 1024 * 1024 + 1}
+oversize_file = {"manifest": [{"path": "big.sav", "size": 100 * 1024 * 1024 + 1, "sha256": "a" * 64}], "total_size": 100 * 1024 * 1024 + 1, "slot": 1}
 check("单文件超限被拒", client.post(f"/saves/games/{game_id}/versions", json=oversize_file, headers=H).status_code == 400)
 
-oversize_total = {"manifest": [{"path": f"{i}.sav", "size": 100 * 1024 * 1024, "sha256": "a" * 64} for i in range(6)], "total_size": 600 * 1024 * 1024}
+oversize_total = {"manifest": [{"path": f"{i}.sav", "size": 100 * 1024 * 1024, "sha256": "a" * 64} for i in range(6)], "total_size": 600 * 1024 * 1024, "slot": 1}
 check("总大小超限被拒", client.post(f"/saves/games/{game_id}/versions", json=oversize_total, headers=H).status_code == 400)
+
+check("非法存档位被拒", client.post(f"/saves/games/{game_id}/versions",
+      json={"manifest": [{"path": "a.sav", "size": 1, "sha256": "a" * 64}],
+            "total_size": 1, "slot": 0}, headers=H).status_code == 400)
 
 # --- 增量复用：v2 只上传变化的文件 ---
 content_b = b"save-data-456"
@@ -112,10 +125,12 @@ manifest2 = {
         {"path": "save/b.sav", "size": len(content_b), "sha256": digest_b, "mtime_ns": 456},
     ],
     "total_size": len(content) + len(content_b),
+    "slot": 1,
 }
 r = client.post(f"/saves/games/{game_id}/versions", json=manifest2, headers=H)
 check("v2 开版本 201", r.status_code == 201)
 vid2 = r.json()["versionId"]
+check("同槽位覆盖标记 occupied", r.json()["occupied"] is True and r.json()["existing"]["versionId"] == vid)
 check("v2 仅需上传变化文件", r.json().get("uploadPaths") == ["save/b.sav"])
 
 r = client.post(
@@ -133,6 +148,10 @@ check("v2 新文件已落盘", os.path.isfile(os.path.join(_gdir, "v2", "save", 
 r = client.get(f"/saves/games/{game_id}/versions/{vid2}/files/download", params={"path": "save/a.sav"}, headers=H)
 check("v2 复用文件内容一致", r.status_code == 200 and r.content == content)
 
+r = client.get(f"/saves/games/{game_id}/slots", headers=H)
+check("槽位 1 指向新版本", next(x for x in r.json() if x["slot"] == 1)["versionId"] == vid2)
+check("同槽位旧版本目录被清除", not os.path.isdir(os.path.join(_gdir, "v1")))
+
 # --- 批量上传：一次请求传多个文件 ---
 content_c = b"save-data-789"
 digest_c = hashlib.sha256(content_c).hexdigest()
@@ -144,10 +163,12 @@ manifest3 = {
         {"path": "save/d.sav", "size": len(content_d), "sha256": digest_d, "mtime_ns": 2},
     ],
     "total_size": len(content_c) + len(content_d),
+    "slot": 2,
 }
 r = client.post(f"/saves/games/{game_id}/versions", json=manifest3, headers=H)
 check("v3 开版本 201", r.status_code == 201)
 vid3 = r.json()["versionId"]
+check("新槽位无增量复用", r.json()["occupied"] is False)
 check("v3 两文件都需上传", sorted(r.json().get("uploadPaths") or []) == ["save/c.sav", "save/d.sav"])
 
 items = json.dumps([{"path": "save/c.sav", "sha256": digest_c},

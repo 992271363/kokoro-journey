@@ -57,20 +57,21 @@ def _same_path(a: str, b: str) -> bool:
 
 def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entries,
                            bind_entry_id: Optional[int] = None,
+                           slot: Optional[int] = None, version_id: Optional[int] = None,
                            progress_cb=None) -> Tuple[bool, object]:
-    """下载云端最新版本到 local_path，并创建/关联本地条目。
+    """把云端「指定存档位(slot)的版本」下载到 local_path，并创建/关联本地条目。
 
-    返回 (True, {"local_id","server_id","version","fingerprint","backup"}) 或 (False, 错误)。
+    返回 (True, {"local_id","server_id","slot","version_id","fingerprint","backup"})
+    或 (False, 错误)。
     """
     if not local_path:
         return False, "未指定本地目录"
     if not cloud_game or not cloud_game.get("id"):
         return False, "云端游戏无效"
-    if not cloud_game.get("latestVersion"):
-        return False, "云端暂无版本"
+    if version_id is None:
+        return False, "云端该存档位暂无版本"
 
     server_id = cloud_game["id"]
-    latest = cloud_game["latestVersion"]
 
     # 目录占用检查（跳过本游戏自身已关联的条目 / 正在关联的条目）
     for e in entries:
@@ -79,18 +80,7 @@ def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entrie
         if _same_path(e.local_path, local_path):
             return False, "该目录已被其它存档条目占用"
 
-    # 优先用 list_games 已带回的最新版本 id，省掉一次 list_versions 请求
-    target_id = cloud_game.get("latestVersionId")
-    if target_id is None:
-        ok, versions = ss.list_versions(token, server_id)
-        if not ok:
-            return False, versions
-        target = next((v for v in versions if v.get("versionNumber") == latest), None)
-        if target is None:
-            return False, "未找到云端最新版本"
-        target_id = target["id"]
-
-    ok, tmp = ss.prepare_download(token, server_id, target_id, local_path,
+    ok, tmp = ss.prepare_download(token, server_id, version_id, local_path,
                                   progress_cb=progress_cb)
     if not ok:
         return False, tmp
@@ -110,20 +100,22 @@ def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entrie
     fingerprint = ss.tree_fingerprint(local_path)
 
     if bind_entry_id is not None:
-        if not AppRepository.bind_save_game_to_server(bind_entry_id, server_id, latest, fingerprint):
+        if not AppRepository.bind_save_game_to_server(bind_entry_id, server_id,
+                                                      version_id, fingerprint, slot):
             return False, "关联本地条目失败"
         local_id = bind_entry_id
     else:
         bound = next((e for e in entries if e.server_id == server_id), None)
         if bound is not None:
-            AppRepository.mark_save_game_synced(bound.id, latest, fingerprint)
+            AppRepository.mark_save_game_synced(bound.id, version_id, fingerprint, slot)
             local_id = bound.id
         else:
             obj = AppRepository.create_bound_save_game(
-                cloud_game.get("name") or "未命名", local_path, server_id, latest, fingerprint)
+                cloud_game.get("name") or "未命名", local_path, server_id,
+                version_id, fingerprint, slot)
             if obj is None:
                 return False, "创建本地条目失败"
             local_id = obj.id
 
-    return True, {"local_id": local_id, "server_id": server_id,
-                  "version": latest, "fingerprint": fingerprint, "backup": backup}
+    return True, {"local_id": local_id, "server_id": server_id, "slot": slot,
+                  "version_id": version_id, "fingerprint": fingerprint, "backup": backup}

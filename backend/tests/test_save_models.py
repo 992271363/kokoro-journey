@@ -41,6 +41,15 @@ check("save_files 含 relative_path/size/sha256/mtime_ns",
       {"relative_path", "size", "sha256", "mtime_ns"} <= cols)
 check("save_files 仅一个 sha256 字段", len([c for c in cols if "sha256" in c]) == 1)
 
+vcols = {c["name"] for c in insp.get_columns("server_save_versions")}
+check("save_versions 含 slot", "slot" in vcols)
+_vuq = insp.get_unique_constraints("server_save_versions")
+check("slot 不参与唯一约束",
+      all("slot" not in (c.get("column_names") or []) for c in _vuq))
+_vidx = insp.get_indexes("server_save_versions")
+check("存在 (game_id, slot) 索引",
+      any((i.get("column_names") or []) == ["game_id", "slot"] for i in _vidx))
+
 # 唯一约束：同用户同名游戏
 session = database.SessionLocal()
 user = models.User(username="t", hashed_password="x")

@@ -69,11 +69,10 @@ def reset():
 base = _common.tmpdir("kokoro_bind_")
 local = os.path.join(base, "game_new")
 reset()
-ss.list_versions = lambda *a, **k: (True, [{"id": 7, "versionNumber": 3}])
 ss.prepare_download = lambda token, sid, vid, target, progress_cb=None: (True, make_tmp(target))
 ss.discard_download = lambda tmp: None
-r = sb.download_cloud_game_to("t", dict(cloud), local, [])
-check("NEW 下载成功", r[0] and r[1]["version"] == 3 and r[1]["local_id"] == 99)
+r = sb.download_cloud_game_to("t", dict(cloud), local, [], slot=1, version_id=7)
+check("NEW 下载成功", r[0] and r[1]["version_id"] == 7 and r[1]["local_id"] == 99)
 check("NEW 创建了本地条目", len(created) == 1 and created[0][0] == "A" and created[0][1] == local)
 check("NEW 落盘成功", os.path.isfile(os.path.join(local, "a.sav")))
 
@@ -81,27 +80,27 @@ check("NEW 落盘成功", os.path.isfile(os.path.join(local, "a.sav")))
 local2 = os.path.join(base, "game_fail")
 reset()
 ss.prepare_download = lambda *a, **k: (False, "下载失败")
-r = sb.download_cloud_game_to("t", dict(cloud), local2, [])
+r = sb.download_cloud_game_to("t", dict(cloud), local2, [], slot=1, version_id=7)
 check("失败返回 False", r[0] is False)
 check("失败不创建条目", len(created) == 0)
 
 # --- 目录占用 ---
 reset()
 occ = [E(id=2, server_id=1, name="X", local_path=local)]
-r = sb.download_cloud_game_to("t", dict(cloud), local, occ)
+r = sb.download_cloud_game_to("t", dict(cloud), local, occ, slot=1, version_id=7)
 check("目录被占用被拒", r[0] is False and "占用" in r[1])
 
-# --- 云端无版本 ---
+# --- 存档位为空（无版本）---
 reset()
-r = sb.download_cloud_game_to("t", {"id": 5, "name": "A", "latestVersion": None}, os.path.join(base, "g"), [])
-check("无版本被拒", r[0] is False and "暂无版本" in r[1])
+r = sb.download_cloud_game_to("t", dict(cloud), os.path.join(base, "g"), [], slot=1, version_id=None)
+check("空存档位被拒", r[0] is False and "暂无版本" in r[1])
 
 # --- BOUND_SAME：不新建，仅标记 ---
 local3 = os.path.join(base, "game_bound")
 reset()
 ss.prepare_download = lambda token, sid, vid, target, progress_cb=None: (True, make_tmp(target))
 bound_entry = E(id=1, server_id=5, name="A", local_path=local3)
-r = sb.download_cloud_game_to("t", dict(cloud), local3, [bound_entry])
+r = sb.download_cloud_game_to("t", dict(cloud), local3, [bound_entry], slot=2, version_id=7)
 check("已绑定：仅标记不新建", r[0] and len(created) == 0 and len(marked) == 1 and marked[0][0] == 1)
 
 # --- bind_entry_id：绑定已有条目 ---
@@ -109,7 +108,7 @@ local4 = os.path.join(base, "game_bindexisting")
 reset()
 ss.prepare_download = lambda token, sid, vid, target, progress_cb=None: (True, make_tmp(target))
 unbound = E(id=3, server_id=None, name="A", local_path=local4)
-r = sb.download_cloud_game_to("t", dict(cloud), local4, [unbound], bind_entry_id=3)
+r = sb.download_cloud_game_to("t", dict(cloud), local4, [unbound], bind_entry_id=3, slot=3, version_id=7)
 check("绑定已有条目", r[0] and len(bound_to) == 1 and bound_to[0][0] == 3 and len(created) == 0)
 
 print("ALL PASS" if ok else "SOME FAILED")

@@ -516,6 +516,23 @@ class AppRepository:
             db.close()
 
     @staticmethod
+    def set_save_game_slot(save_id: int, slot: Optional[int]) -> bool:
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            obj.server_slot = slot
+            obj.updated_at = datetime.datetime.now()
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
     def clear_save_game_server_id(save_id: int) -> bool:
         db = SessionLocal()
         try:
@@ -523,6 +540,7 @@ class AppRepository:
             if not obj:
                 return False
             obj.server_id = None
+            obj.server_slot = None
             obj.last_synced_version = None
             obj.last_synced_at = None
             obj.local_fingerprint = None
@@ -536,7 +554,8 @@ class AppRepository:
             db.close()
 
     @staticmethod
-    def mark_save_game_synced(save_id: int, version: int, fingerprint: Optional[str]) -> bool:
+    def mark_save_game_synced(save_id: int, version: int, fingerprint: Optional[str],
+                              slot: Optional[int] = None) -> bool:
         db = SessionLocal()
         try:
             obj = db.query(SaveGame).filter_by(id=save_id).first()
@@ -545,6 +564,8 @@ class AppRepository:
             obj.last_synced_version = version
             obj.last_synced_at = datetime.datetime.now()
             obj.local_fingerprint = fingerprint
+            if slot is not None:
+                obj.server_slot = slot
             db.commit()
             return True
         except Exception:
@@ -555,7 +576,8 @@ class AppRepository:
 
     @staticmethod
     def create_bound_save_game(name: str, local_path: str, server_id: int,
-                               version: Optional[int], fingerprint: Optional[str]) -> Optional[SaveGame]:
+                               version: Optional[int], fingerprint: Optional[str],
+                               slot: Optional[int] = None) -> Optional[SaveGame]:
         """创建已关联云端游戏的本地条目（linked_app_path 留空，单事务）。"""
         db = SessionLocal()
         try:
@@ -565,6 +587,7 @@ class AppRepository:
                 local_path=local_path,
                 linked_app_path=None,
                 server_id=server_id,
+                server_slot=slot,
                 last_synced_version=version,
                 last_synced_at=now,
                 local_fingerprint=fingerprint,
@@ -583,7 +606,8 @@ class AppRepository:
 
     @staticmethod
     def bind_save_game_to_server(save_id: int, server_id: int,
-                                 version: Optional[int], fingerprint: Optional[str]) -> bool:
+                                 version: Optional[int], fingerprint: Optional[str],
+                                 slot: Optional[int] = None) -> bool:
         """把已有本地条目关联到云端游戏并写入同步状态（不改本地路径与文件）。"""
         db = SessionLocal()
         try:
@@ -594,6 +618,8 @@ class AppRepository:
             obj.last_synced_version = version
             obj.last_synced_at = datetime.datetime.now()
             obj.local_fingerprint = fingerprint
+            if slot is not None:
+                obj.server_slot = slot
             obj.updated_at = datetime.datetime.now()
             db.commit()
             return True
