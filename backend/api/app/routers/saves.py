@@ -244,6 +244,8 @@ def list_slots(
         game_id=game_id, status="committed"
     ).all()
     by_slot = {v.slot: v for v in rows if v.slot is not None}
+    metas = {m.slot: m.label for m in db.query(models.ServerSaveSlotMeta).filter_by(
+        game_id=game_id).all()}
     out = []
     for slot in range(1, save_storage.SLOT_COUNT + 1):
         v = by_slot.get(slot)
@@ -253,8 +255,47 @@ def list_slots(
             "created_at": v.created_at if v else None,
             "total_size": v.total_size if v else None,
             "file_count": v.file_count if v else None,
+            "label": metas.get(slot),
         })
     return out
+
+
+@router.put("/games/{game_id}/slots/{slot}/label")
+def set_slot_label(
+    game_id: int,
+    slot: int,
+    payload: schemas.SaveSlotLabelUpdate,
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """设置/清除某个存档位的备注名（与槽内容无关，删除内容后仍保留）。"""
+    _get_own_game(db, current_user, game_id)
+    _require_device(db, current_user, x_device_id)
+    if not (1 <= slot <= save_storage.SLOT_COUNT):
+        raise HTTPException(status_code=400, detail=f"存档位非法（应为 1..{save_storage.SLOT_COUNT}）")
+
+    label = (payload.label or "").strip()
+    if len(label) > 32:
+        raise HTTPException(status_code=400, detail="备注过长（最多 32 字符）")
+
+    meta = db.query(models.ServerSaveSlotMeta).filter_by(
+        game_id=game_id, slot=slot).first()
+    if not label:
+        if meta is not None:
+            db.delete(meta)
+            db.commit()
+        return {"ok": True, "slot": slot, "label": None}
+
+    if meta is None:
+        meta = models.ServerSaveSlotMeta(game_id=game_id, slot=slot,
+                                         label=label, updated_at=_now())
+        db.add(meta)
+    else:
+        meta.label = label
+        meta.updated_at = _now()
+    db.commit()
+    return {"ok": True, "slot": slot, "label": label}
 
 
 @router.delete("/games/{game_id}/slots/{slot}", status_code=status.HTTP_200_OK)

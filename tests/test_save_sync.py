@@ -214,6 +214,7 @@ class _MethodFake:
     def __init__(self):
         self.patched = None
         self.deleted = None
+        self.put_call = None
 
     def patch(self, url, **kw):
         self.patched = (url, kw.get("json"))
@@ -222,6 +223,10 @@ class _MethodFake:
     def delete(self, url, **kw):
         self.deleted = url
         return _Resp(200, {"ok": True, "slot": 3})
+
+    def put(self, url, **kw):
+        self.put_call = (url, kw.get("json"))
+        return _Resp(200, {"ok": True, "slot": 3, "label": "第一章"})
 
 
 mf = _MethodFake()
@@ -234,6 +239,10 @@ check("改名/标识符走 PATCH",
 ok_e, res_e = ss.delete_slot("tok", 1, 3)
 check("删存档位走 DELETE",
       ok_e and mf.deleted.endswith("/saves/games/1/slots/3") and res_e["slot"] == 3)
+ok_l, res_l = ss.set_slot_label("tok", 1, 3, "  第一章  ")
+check("备注走 PUT 且去除首尾空格",
+      ok_l and mf.put_call[0].endswith("/saves/games/1/slots/3/label")
+      and mf.put_call[1] == {"label": "第一章"} and res_l["label"] == "第一章")
 
 
 # --- sha256 缓存：重复构建不重算 ---

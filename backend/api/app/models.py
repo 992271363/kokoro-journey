@@ -138,6 +138,27 @@ class ServerSaveGame(Base):
         back_populates="game",
         cascade="all, delete-orphan",
     )
+    slot_metas = relationship(
+        "ServerSaveSlotMeta",
+        back_populates="game",
+        cascade="all, delete-orphan",
+    )
+
+
+# 云存档位备注名（用户自定义，独立于版本内容：覆盖/删除槽内容后备注仍保留）
+class ServerSaveSlotMeta(Base):
+    __tablename__ = 'server_save_slot_metas'
+    __table_args__ = (
+        UniqueConstraint('game_id', 'slot', name='uix_server_save_slot_meta_game_slot'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    game_id = Column(Integer, ForeignKey('server_save_games.id'), nullable=False, index=True)
+    slot = Column(Integer, nullable=False)          # 1..SLOT_COUNT
+    label = Column(String(32), nullable=False)
+    updated_at = Column(DateTime, nullable=True)
+
+    game = relationship("ServerSaveGame", back_populates="slot_metas")
 
 
 # 云存档版本（整目录完整快照）

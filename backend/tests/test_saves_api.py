@@ -240,6 +240,36 @@ check("重复删除空槽 404",
 check("非法存档位 400",
       client.delete(f"/saves/games/{game_id}/slots/0", headers=H).status_code == 400)
 
+# --- 存档位备注名 ---
+check("空槽可命名",
+      client.put(f"/saves/games/{game_id}/slots/5/label",
+                 json={"label": "第一章"}, headers=H).status_code == 200)
+r = client.get(f"/saves/games/{game_id}/slots", headers=H)
+check("备注读回", next(x for x in r.json() if x["slot"] == 5)["label"] == "第一章")
+check("备注可覆盖",
+      client.put(f"/saves/games/{game_id}/slots/5/label",
+                 json={"label": "第二章"}, headers=H).status_code == 200)
+r = client.get(f"/saves/games/{game_id}/slots", headers=H)
+check("备注已更新", next(x for x in r.json() if x["slot"] == 5)["label"] == "第二章")
+check("备注过长 400",
+      client.put(f"/saves/games/{game_id}/slots/5/label",
+                 json={"label": "x" * 33}, headers=H).status_code == 400)
+check("备注非法槽位 400",
+      client.put(f"/saves/games/{game_id}/slots/0/label",
+                 json={"label": "x"}, headers=H).status_code == 400)
+
+# 删内容后备注保留（槽 1 有此前的存档）
+client.put(f"/saves/games/{game_id}/slots/1/label", json={"label": "保留我"}, headers=H)
+client.delete(f"/saves/games/{game_id}/slots/1", headers=H)
+r = client.get(f"/saves/games/{game_id}/slots", headers=H)
+check("删内容后备注保留", next(x for x in r.json() if x["slot"] == 1)["label"] == "保留我")
+
+check("清除备注 200",
+      client.put(f"/saves/games/{game_id}/slots/5/label",
+                 json={"label": "  "}, headers=H).status_code == 200)
+r = client.get(f"/saves/games/{game_id}/slots", headers=H)
+check("清除后备注为 null", next(x for x in r.json() if x["slot"] == 5)["label"] is None)
+
 # --- 单设备接管 ---
 r = client.post("/saves/device/claim", headers={"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"})
 check("新设备登记成功", r.status_code == 200 and r.json()["previousDeviceId"] == "dev-A")

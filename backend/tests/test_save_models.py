@@ -33,7 +33,8 @@ def check(name, cond):
 
 insp = inspect(database.engine)
 tables = set(insp.get_table_names())
-for t in ("server_save_games", "server_save_versions", "server_save_files", "server_cloud_sessions"):
+for t in ("server_save_games", "server_save_versions", "server_save_files",
+          "server_save_slot_metas", "server_cloud_sessions"):
     check(f"表存在: {t}", t in tables)
 
 cols = {c["name"] for c in insp.get_columns("server_save_files")}
@@ -96,6 +97,21 @@ session.add(models.ServerSaveFile(version_id=ver.id, relative_path="a.sav",
 session.commit()
 check("版本与文件清单可写入",
       session.query(models.ServerSaveFile).count() == 1)
+
+# 存档位备注：唯一约束 + 删游戏级联
+_mu = insp.get_unique_constraints("server_save_slot_metas")
+check("slot_meta 唯一约束 (game_id, slot)",
+      any((c.get("column_names") or []) == ["game_id", "slot"] for c in _mu))
+
+game2 = models.ServerSaveGame(user_id=user.id, name="G2", identifier="g2")
+session.add(game2)
+session.commit()
+session.add(models.ServerSaveSlotMeta(game_id=game2.id, slot=3, label="第三章"))
+session.commit()
+check("备注写入", session.query(models.ServerSaveSlotMeta).count() == 1)
+session.delete(game2)
+session.commit()
+check("删游戏级联清备注", session.query(models.ServerSaveSlotMeta).count() == 0)
 
 session.close()
 try:

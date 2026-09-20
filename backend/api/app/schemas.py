@@ -120,6 +120,11 @@ class SaveSlotView(CamelAliasModel):
     created_at: Optional[datetime] = None
     total_size: Optional[int] = None
     file_count: Optional[int] = None
+    label: Optional[str] = None
+
+
+class SaveSlotLabelUpdate(CamelAliasModel):
+    label: Optional[str] = None
 
 
 class SaveGameCreate(CamelAliasModel):

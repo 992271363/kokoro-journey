@@ -241,6 +241,20 @@ def _patch_json(token: str, path: str, payload: Optional[dict] = None,
     return True, r.json()
 
 
+def _put_json(token: str, path: str, payload: Optional[dict] = None,
+              timeout: int = TIMEOUT) -> Tuple[bool, object]:
+    try:
+        r = _send(lambda: get_session().put(f"{API_URL}/{path.lstrip('/')}", json=payload,
+                                            headers=_headers(token), timeout=timeout))
+    except requests.exceptions.RequestException as e:
+        return False, _friendly_error(e)
+    if r.status_code == 409:
+        return False, _detail_or_taken_over(r)
+    if r.status_code >= 400:
+        return False, _detail(r)
+    return True, r.json()
+
+
 def _get_json(token: str, path: str, params: Optional[dict] = None,
               timeout: int = TIMEOUT) -> Tuple[bool, object]:
     try:
@@ -334,6 +348,13 @@ def list_slots(token: str, server_id: int) -> Tuple[bool, object]:
 def delete_slot(token: str, server_id: int, slot: int) -> Tuple[bool, object]:
     """删除某个存档位内的云端存档（保留游戏与其它槽位）。"""
     return _delete(token, f"/saves/games/{server_id}/slots/{slot}")
+
+
+def set_slot_label(token: str, server_id: int, slot: int,
+                   label: str) -> Tuple[bool, object]:
+    """设置/清除某个存档位的备注名（空字符串=清除）。"""
+    return _put_json(token, f"/saves/games/{server_id}/slots/{slot}/label",
+                     {"label": (label or "").strip()})
 
 
 def pick_auto_slot(slots) -> Optional[int]:

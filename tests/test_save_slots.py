@@ -85,5 +85,40 @@ dd._on_ok()
 check("删除模式：空槽不通过校验", dd.result() != QDialog.Accepted)
 dd.close()
 
+# --- 存档位备注名：显示 + 重命名 ---
+from PySide6.QtWidgets import QInputDialog  # noqa: E402
+
+slots_l = [{"slot": i, "versionId": None} for i in range(1, 11)]
+slots_l[0] = {"slot": 1, "versionId": 11, "createdAt": "2026-05-01T10:20:30",
+              "totalSize": 2048, "label": "第一章"}
+dl = SlotPickerDialog(None, slots_l, mode="upload", token="t", server_id=5)
+lcards = {c.slot: c for c in dl.findChildren(SlotCard)}
+check("卡片显示备注", lcards[1].name_label.text() == "第一章")
+check("未命名显示占位", lcards[2].name_label.text() == "未命名")
+check("有 token 时可重命名", dl._can_rename())
+
+ss.set_slot_label = lambda t, sid, slot, label: (
+    True, {"ok": True, "slot": slot, "label": label or None})
+QInputDialog.getText = staticmethod(lambda *a, **k: ("第三章", True))
+dl.rename_slot(3)
+check("重命名更新卡片", lcards[3].name_label.text() == "第三章")
+check("重命名更新缓存", (dl._slots.get(3) or {}).get("label") == "第三章")
+
+QInputDialog.getText = staticmethod(lambda *a, **k: ("", True))
+dl.rename_slot(3)
+check("清空备注回到未命名", lcards[3].name_label.text() == "未命名"
+      and (dl._slots.get(3) or {}).get("label") is None)
+
+QMessageBox.warning = staticmethod(lambda *a, **k: QMessageBox.Ok)
+_prev = lcards[3].name_label.text()
+QInputDialog.getText = staticmethod(lambda *a, **k: ("x" * 33, True))
+dl.rename_slot(3)
+check("超长备注被拒", lcards[3].name_label.text() == _prev)
+dl.close()
+
+dl2 = SlotPickerDialog(None, slots_l, mode="upload")
+check("无 token 时不启用重命名", not dl2._can_rename())
+dl2.close()
+
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

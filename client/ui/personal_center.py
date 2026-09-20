@@ -8,12 +8,12 @@ import os
 import re
 from typing import Optional
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, QEvent
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMessageBox, QFileDialog, QFormLayout, QListWidget,
-    QListWidgetItem, QDialogButtonBox,
+    QListWidgetItem, QDialogButtonBox, QInputDialog, QMenu,
     QFrame, QGridLayout, QRadioButton, QButtonGroup, QStackedWidget,
 )
 
@@ -441,12 +441,13 @@ class CloudGamesDialog(QDialog):
 
 
 class SlotCard(QFrame):
-    """存档位卡片：左上角单选圆点，卡内显示上传时间/文件大小；空槽用常规样式。"""
+    """存档位卡片：左上角单选圆点，卡内显示备注名/上传时间/文件大小；空槽用常规样式。"""
 
     def __init__(self, slot: int, info, parent=None):
         super().__init__(parent)
         self.slot = slot
-        occupied = bool(info and info.get("versionId"))
+        self.info = info or {}
+        occupied = bool(self.info.get("versionId"))
         self.setObjectName("slot_card")
         self.setProperty("slot_occupied", occupied)
         self.setFrameShape(QFrame.StyledPanel)
@@ -459,10 +460,16 @@ class SlotCard(QFrame):
         self.radio.setObjectName("slot_radio")
         layout.addWidget(self.radio)
 
+        # 用户自定义备注名（未命名时显示占位）
+        self.name_label = QLabel("")
+        self.name_label.setProperty("role", "muted")
+        self.set_label(self.info.get("label"))
+        layout.addWidget(self.name_label)
+
         if occupied:
-            ts = str(info.get("createdAt") or "")[:19].replace("T", " ")
+            ts = str(self.info.get("createdAt") or "")[:19].replace("T", " ")
             self.time_label = QLabel(ts or "—")
-            self.size_label = QLabel(_fmt_size(info.get("totalSize", 0)))
+            self.size_label = QLabel(_fmt_size(self.info.get("totalSize", 0)))
         else:
             self.time_label = QLabel("空")
             self.size_label = QLabel("")
@@ -470,6 +477,11 @@ class SlotCard(QFrame):
             lbl.setProperty("role", "muted")
             layout.addWidget(lbl)
         layout.addStretch()
+
+    def set_label(self, label):
+        label = (label or "").strip()
+        self.info["label"] = label or None
+        self.name_label.setText(label or "未命名")
 
     def mousePressEvent(self, event):
         self.radio.setChecked(True)
@@ -486,19 +498,23 @@ class SlotPickerDialog(QDialog):
         "delete": ("删除云端存档位", "选择要删除的存档位（仅云端；本地文件与其它槽位不受影响）。"),
     }
 
-    def __init__(self, parent, slots, mode: str = "upload"):
+    def __init__(self, parent, slots, mode: str = "upload",
+                 token: str = None, server_id: int = None):
         super().__init__(parent)
         title, desc = self._TEXT.get(mode, self._TEXT["upload"])
         self.setWindowTitle(title)
         self.resize(560, 360)
         self.mode = mode
         self.selected = None
+        self._token = token
+        self._server_id = server_id
         self._slots = {s.get("slot"): s for s in (slots or [])}
+        self._cards = {}
 
         layout = QVBoxLayout(self)
-        desc_label = QLabel(desc)
-        desc_label.setWordWrap(True)
-        layout.addWidget(desc_label)
+        self._desc_label = QLabel(desc)
+        self._desc_label.setWordWrap(True)
+        layout.addWidget(self._desc_label)
 
         self._pages = QStackedWidget()
         layout.addWidget(self._pages, stretch=1)
@@ -520,11 +536,23 @@ class SlotPickerDialog(QDialog):
                 if mode == "delete" and not (self._slots.get(slot) or {}).get("versionId"):
                     # 删除模式只允许选有内容的存档位
                     card.radio.setEnabled(False)
+                self._cards[slot] = card
                 self._group.addButton(card.radio, slot)
                 grid.addWidget(card, 0, col)
             self._pages.addWidget(page)
 
         self._group.buttonToggled.connect(self._on_toggled)
+
+        # 备注重命名：右键菜单 + 双击（需 token/server_id 才启用）
+        if self._can_rename():
+            hint = QLabel("提示：右键或双击存档位可重命名。")
+            hint.setProperty("role", "muted")
+            layout.addWidget(hint)
+            for card in self._cards.values():
+                card.setContextMenuPolicy(Qt.CustomContextMenu)
+                card.customContextMenuRequested.connect(
+                    lambda pos, c=card: self._slot_menu(c))
+                card.installEventFilter(self)
 
         nav = QHBoxLayout()
         self.btn_prev = QPushButton("上一页")
@@ -544,6 +572,46 @@ class SlotPickerDialog(QDialog):
         layout.addWidget(buttons)
 
         self._goto(0)
+
+    def _can_rename(self):
+        return bool(self._token and self._server_id)
+
+    def eventFilter(self, obj, event):
+        if (event.type() == QEvent.Type.MouseButtonDblClick
+                and isinstance(obj, SlotCard) and self._can_rename()):
+            self.rename_slot(obj.slot)
+            return True
+        return super().eventFilter(obj, event)
+
+    def _slot_menu(self, card):
+        menu = QMenu(self)
+        act = menu.addAction("重命名…")
+        if menu.exec(card.mapToGlobal(card.rect().bottomLeft())) is act:
+            self.rename_slot(card.slot)
+
+    def rename_slot(self, slot: int):
+        """弹出输入框修改备注并同步到云端；成功后就地刷新卡片。"""
+        if not self._can_rename():
+            return
+        current = (self._slots.get(slot) or {}).get("label") or ""
+        text, ok = QInputDialog.getText(self, "重命名存档位",
+                                        f"存档位 {slot} 的备注名：",
+                                        QLineEdit.Normal, current)
+        if not ok:
+            return
+        label = text.strip()
+        if len(label) > 32:
+            QMessageBox.warning(self, "提示", "备注名最多 32 个字符。")
+            return
+        ok2, res = ss.set_slot_label(self._token, self._server_id, slot, label)
+        if not ok2:
+            QMessageBox.warning(self, "重命名失败", ss_http_msg(res))
+            return
+        info = self._slots.setdefault(slot, {"slot": slot})
+        info["label"] = label or None
+        card = self._cards.get(slot)
+        if card is not None:
+            card.set_label(label)
 
     def _goto(self, index: int):
         index = max(0, min(self._page_count - 1, index))
@@ -820,7 +888,8 @@ class PersonalCenter(QDialog):
         if not ok:
             QMessageBox.warning(self, "提示", ss_http_msg(slots))
             return
-        picker = SlotPickerDialog(self, slots, mode="download")
+        picker = SlotPickerDialog(self, slots, mode="download",
+                                  token=self._token, server_id=cloud_game["id"])
         if picker.exec() != QDialog.Accepted:
             return
         info = picker.selected_info() or {}
@@ -953,7 +1022,8 @@ class PersonalCenter(QDialog):
                       "totalSize": None, "fileCount": None}
                      for i in range(1, ss.SLOT_COUNT + 1)]
 
-        dlg = SlotPickerDialog(self, slots, mode="upload")
+        dlg = SlotPickerDialog(self, slots, mode="upload",
+                               token=self._token, server_id=entry.server_id)
         if dlg.exec() != QDialog.Accepted:
             return
         slot = dlg.selected_slot()
@@ -1022,7 +1092,8 @@ class PersonalCenter(QDialog):
         if not slots:
             QMessageBox.information(self, "提示", "云端暂无存档。")
             return
-        dlg = SlotPickerDialog(self, slots, mode="download")
+        dlg = SlotPickerDialog(self, slots, mode="download",
+                               token=self._token, server_id=entry.server_id)
         if dlg.exec() != QDialog.Accepted:
             return
         info = dlg.selected_info() or {}
@@ -1078,7 +1149,8 @@ class PersonalCenter(QDialog):
         if not slots:
             QMessageBox.information(self, "提示", "云端暂无存档。")
             return
-        dlg = SlotPickerDialog(self, slots, mode="view")
+        dlg = SlotPickerDialog(self, slots, mode="view",
+                               token=self._token, server_id=entry.server_id)
         if dlg.exec() != QDialog.Accepted:
             return
         info = dlg.selected_info() or {}
@@ -1096,7 +1168,8 @@ class PersonalCenter(QDialog):
         if not any(s.get("versionId") for s in slots):
             QMessageBox.information(self, "提示", "云端暂无可删除的存档位。")
             return
-        dlg = SlotPickerDialog(self, slots, mode="delete")
+        dlg = SlotPickerDialog(self, slots, mode="delete",
+                               token=self._token, server_id=entry.server_id)
         if dlg.exec() != QDialog.Accepted:
             return
         slot = dlg.selected_slot()
