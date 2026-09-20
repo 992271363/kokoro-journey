@@ -76,8 +76,9 @@ def sync_entry_on_login(token: str, entry) -> Tuple[bool, str]:
 
     if status == ss.STATUS_LOCAL:
         slot = ss.pick_auto_slot(slots)
-        ok, res = ss.upload_game(token, entry.local_path, entry.name,
-                                 entry.server_id, slot=slot)
+        identifier = getattr(entry, "identifier", None) or entry.name
+        ok, res = ss.upload_game(token, entry.local_path, entry.name, identifier,
+                                 server_id=entry.server_id, slot=slot)
         if not ok:
             return False, res
         AppRepository.mark_save_game_synced(entry.id, res["version_id"],
@@ -137,10 +138,11 @@ def upload_entry(token: str, entry) -> Tuple[bool, object]:
     if not ok:
         return False, _msg(res)
 
-    # 未关联时先按名称找同名的远端游戏，避免盲目写入槽位 1 覆盖已有存档。
+    # 未关联时先按标识符找已存在的远端游戏，避免盲目写入槽位 1 覆盖已有存档。
+    identifier = getattr(entry, "identifier", None) or entry.name
     server_id = entry.server_id
     if server_id is None:
-        server_id = ss._find_remote_game_id(token, entry.name)
+        server_id = ss._find_remote_game_id(token, identifier)
 
     slot = 1
     if server_id is not None:
@@ -151,7 +153,7 @@ def upload_entry(token: str, entry) -> Tuple[bool, object]:
         if picked is not None:
             slot = picked
 
-    ok, res = ss.upload_game(token, entry.local_path, entry.name,
+    ok, res = ss.upload_game(token, entry.local_path, entry.name, identifier,
                              server_id, slot=slot)
     if not ok:
         return False, _msg(res)

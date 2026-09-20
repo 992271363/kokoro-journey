@@ -50,13 +50,22 @@ session.close()
 token = auth.create_access_token({"sub": "tester"})
 H = {"Authorization": f"Bearer {token}", "X-Device-Id": "dev-A"}
 
-# --- 建游戏 / 重名 ---
-r = client.post("/saves/games", json={"name": "Game A"}, headers=H)
+# --- 建游戏 / 标识符唯一、名称可重复 ---
+r = client.post("/saves/games", json={"name": "Game A", "identifier": "game-a"}, headers=H)
 check("建游戏 201", r.status_code == 201)
 game_id = r.json()["id"]
-check("重名游戏 409", client.post("/saves/games", json={"name": "Game A"}, headers=H).status_code == 409)
-r = client.post("/saves/games", json={"name": "Game A"}, headers=H)
-check("重名 409 不带设备标记", r.headers.get("x-cloud-error") != "taken_over")
+check("建游戏回显标识符", r.json().get("identifier") == "game-a")
+check("同标识符 409",
+      client.post("/saves/games", json={"name": "Other", "identifier": "game-a"},
+                  headers=H).status_code == 409)
+r = client.post("/saves/games", json={"name": "Other", "identifier": "game-a"}, headers=H)
+check("标识符冲突 409 不带设备标记", r.headers.get("x-cloud-error") != "taken_over")
+check("同显示名不同标识符允许",
+      client.post("/saves/games", json={"name": "Game A", "identifier": "game-a2"},
+                  headers=H).status_code == 201)
+check("非法标识符 400",
+      client.post("/saves/games", json={"name": "X", "identifier": "bad id!"},
+                  headers=H).status_code == 400)
 
 # --- 开版本 + 上传 + 提交 ---
 content = b"save-data-123"
@@ -201,6 +210,35 @@ check("批量下载内容正确",
 r = client.get("/saves/games", headers=H)
 g = next((x for x in r.json() if x["id"] == game_id), None)
 check("list_games 含 latestVersionId", bool(g) and g.get("latestVersionId") == vid3)
+check("list_games 含 identifier", bool(g) and g.get("identifier") == "game-a")
+
+# --- 改名 / 改标识符 ---
+r = client.patch(f"/saves/games/{game_id}", json={"name": "Game A 改名"}, headers=H)
+check("改显示名 200",
+      r.status_code == 200 and r.json()["name"] == "Game A 改名"
+      and r.json()["identifier"] == "game-a")
+r = client.patch(f"/saves/games/{game_id}", json={"identifier": "game-a3"}, headers=H)
+check("改标识符 200", r.status_code == 200 and r.json()["identifier"] == "game-a3")
+check("改标识符冲突 409",
+      client.patch(f"/saves/games/{game_id}", json={"identifier": "game-a2"},
+                   headers=H).status_code == 409)
+check("改标识符非法 400",
+      client.patch(f"/saves/games/{game_id}", json={"identifier": "bad/id"},
+                   headers=H).status_code == 400)
+
+# --- 删除存档位 ---
+r = client.delete(f"/saves/games/{game_id}/slots/2", headers=H)
+check("删除存档位 200", r.status_code == 200 and r.json()["slot"] == 2)
+r = client.get(f"/saves/games/{game_id}/slots", headers=H)
+check("删除后槽位 2 为空",
+      next(x for x in r.json() if x["slot"] == 2)["versionId"] is None)
+check("删除后槽位 1 保留",
+      next(x for x in r.json() if x["slot"] == 1)["versionId"] is not None)
+check("槽位 2 版本目录已删除", not os.path.isdir(os.path.join(_gdir, "v3")))
+check("重复删除空槽 404",
+      client.delete(f"/saves/games/{game_id}/slots/2", headers=H).status_code == 404)
+check("非法存档位 400",
+      client.delete(f"/saves/games/{game_id}/slots/0", headers=H).status_code == 400)
 
 # --- 单设备接管 ---
 r = client.post("/saves/device/claim", headers={"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"})

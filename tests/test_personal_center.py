@@ -41,9 +41,11 @@ check("按钮: 下载到本地(无省略号)", dlg.btn_download.text() == "下�
 check("按钮: 解除云端关联", dlg.btn_unbind.text() == "解除云端关联")
 check("按钮: 新建目录", dlg.btn_add.text() == "新建目录")
 check("按钮: 删除目录", dlg.btn_del_local.text() == "删除目录")
-_btns = (dlg.btn_from_cloud, dlg.btn_add, dlg.btn_upload, dlg.btn_download,
-         dlg.btn_view, dlg.btn_unbind, dlg.btn_del_remote, dlg.btn_del_local)
-check("8 个按钮均有 tooltip", all(b.toolTip() for b in _btns))
+check("按钮: 编辑条目", dlg.btn_edit.text() == "编辑条目")
+check("按钮: 删除存档位…", dlg.btn_del_slot.text() == "删除存档位…")
+_btns = (dlg.btn_from_cloud, dlg.btn_add, dlg.btn_edit, dlg.btn_upload, dlg.btn_download,
+         dlg.btn_view, dlg.btn_del_slot, dlg.btn_unbind, dlg.btn_del_remote, dlg.btn_del_local)
+check("10 个按钮均有 tooltip", all(b.toolTip() for b in _btns))
 check("表头用语对齐",
       [dlg.table.horizontalHeaderItem(c).text() for c in range(5)]
       == ["名称", "存档目录", "云端版本", "状态", "关联应用"])
@@ -132,14 +134,79 @@ ap.close()
 ad = AddSaveGameDialog(None)
 ad._apply_app(r"C:\games\TestApp.exe", "TestApp")
 check("选应用后名称预填", ad.name_edit.text() == "TestApp")
+check("标识符随名称默认生成", ad.identifier_edit.text() == "TestApp")
 ad.name_edit.setText("我的自定义名")
 ad._on_name_edited("我的自定义名")  # 模拟用户手改
+check("改名后标识符联动", ad.identifier_edit.text() == "我的自定义名")
 ad._apply_app(r"C:\games\Other.exe", "Other")
 check("手改名称后换应用不覆盖", ad.name_edit.text() == "我的自定义名")
-check("values 返回关联路径", ad.values()["linked_app_path"] == r"C:\games\Other.exe")
+check("values 返回关联路径与标识符",
+      ad.values()["linked_app_path"] == r"C:\games\Other.exe"
+      and ad.values()["identifier"] == "我的自定义名")
 ad._clear_app()
 check("清除关联", ad.values()["linked_app_path"] is None and ad.app_edit.text() == "")
 ad.close()
+
+# 手改标识符后，改名称不再覆盖标识符
+ad_id = AddSaveGameDialog(None)
+ad_id.name_edit.setText("游戏A")
+ad_id._on_name_edited("游戏A")
+ad_id.identifier_edit.setText("game-a")
+ad_id._on_identifier_edited("game-a")
+ad_id.name_edit.setText("游戏B")
+ad_id._on_name_edited("游戏B")
+check("手改标识符后不再联动", ad_id.identifier_edit.text() == "game-a")
+ad_id.close()
+
+# 中文名称允许直接作为标识符；冲突标识符被拦截
+ad_cn = AddSaveGameDialog(None)
+ad_cn.name_edit.setText("艾尔登法环")
+ad_cn._on_name_edited("艾尔登法环")
+check("中文可作标识符", ad_cn.identifier_edit.text() == "艾尔登法环")
+ad_cn.close()
+
+import _common  # noqa: E402
+from PySide6.QtWidgets import QDialog  # noqa: E402
+
+ad_dup = AddSaveGameDialog(None, taken_identifiers={"taken"})
+ad_dup.name_edit.setText("X")
+ad_dup._on_name_edited("X")
+ad_dup.identifier_edit.setText("taken")
+ad_dup._on_identifier_edited("taken")
+ad_dup.dir_edit.setText(_common.tmpdir("pc_dir_"))
+QMessageBox.warning = staticmethod(lambda *a, **k: QMessageBox.Ok)
+ad_dup._on_ok()
+check("标识符与本地条目重复被拦截", ad_dup.result() != QDialog.Accepted)
+ad_dup.close()
+
+# 编辑态预填
+e_edit = AppRepository.create_save_game("原标题", r"C:\orig", None, "orig-id")
+ad_ed = AddSaveGameDialog(None, entry=e_edit)
+check("编辑态预填名称/标识符/目录",
+      ad_ed.name_edit.text() == "原标题" and ad_ed.identifier_edit.text() == "orig-id"
+      and ad_ed.dir_edit.text() == r"C:\orig")
+ad_ed.close()
+
+# 编辑落库（本地直改）
+d_edit = PersonalCenter(None, "token", "tester")
+d_edit._apply_edit(e_edit, {"name": "改后", "identifier": "new-id",
+                            "local_path": r"C:\new", "linked_app_path": None})
+g_edit = AppRepository.get_save_game(e_edit.id)
+check("编辑写入本地库",
+      g_edit.name == "改后" and g_edit.identifier == "new-id" and g_edit.local_path == r"C:\new")
+AppRepository.delete_save_game(e_edit.id)
+
+# 删除存档位回调：若条目正绑定该槽则清记录
+e_slot = AppRepository.create_save_game("槽位游戏", r"C:\slot", None, "slot-id")
+AppRepository.set_save_game_server_id(e_slot.id, 5)
+AppRepository.set_save_game_slot(e_slot.id, 2)
+e_slot = AppRepository.get_save_game(e_slot.id)  # 重新取（含 server_slot）
+d_edit._pending_delete_slot = (e_slot, 2)
+d_edit._on_delete_slot_done(True, {"slot": 2})
+g_slot = AppRepository.get_save_game(e_slot.id)
+check("删除槽位后清空绑定槽记录", g_slot.server_slot is None and g_slot.last_synced_version is None)
+AppRepository.delete_save_game(e_slot.id)
+d_edit.close()
 
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

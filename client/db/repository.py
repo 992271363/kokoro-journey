@@ -15,6 +15,9 @@ from core.tracker import add_or_get_watched_app
 from util.path import normalize_exe_path
 from util.format import never_text
 
+# 哨兵：区分「未提供」与「显式设为 None（清空）」
+_UNSET = object()
+
 
 @dataclass
 class AppInfo:
@@ -437,12 +440,14 @@ class AppRepository:
 
     @staticmethod
     def create_save_game(name: str, local_path: str,
-                         linked_app_path: Optional[str] = None) -> Optional[SaveGame]:
+                         linked_app_path: Optional[str] = None,
+                         identifier: Optional[str] = None) -> Optional[SaveGame]:
         db = SessionLocal()
         try:
             now = datetime.datetime.now()
             obj = SaveGame(
                 name=name,
+                identifier=identifier or name,
                 local_path=local_path,
                 linked_app_path=linked_app_path,
                 created_at=now,
@@ -475,19 +480,22 @@ class AppRepository:
             db.close()
 
     @staticmethod
-    def update_save_game(save_id: int, name: Optional[str] = None,
-                         local_path: Optional[str] = None,
-                         linked_app_path: Optional[str] = None) -> bool:
+    def update_save_game(save_id: int, name=_UNSET,
+                         local_path=_UNSET, linked_app_path=_UNSET,
+                         identifier=_UNSET) -> bool:
+        """更新条目字段；未传参=不改，显式传 None=清空（如清除关联应用）。"""
         db = SessionLocal()
         try:
             obj = db.query(SaveGame).filter_by(id=save_id).first()
             if not obj:
                 return False
-            if name is not None:
+            if name is not _UNSET and name is not None:
                 obj.name = name
-            if local_path is not None:
+            if identifier is not _UNSET and identifier is not None:
+                obj.identifier = identifier
+            if local_path is not _UNSET and local_path is not None:
                 obj.local_path = local_path
-            if linked_app_path is not None:
+            if linked_app_path is not _UNSET:
                 obj.linked_app_path = linked_app_path
             obj.updated_at = datetime.datetime.now()
             db.commit()
@@ -554,6 +562,27 @@ class AppRepository:
             db.close()
 
     @staticmethod
+    def clear_save_game_slot(save_id: int) -> bool:
+        """云端某存档位被删除后，清掉本地对该槽的同步记录（保留与游戏的关联）。"""
+        db = SessionLocal()
+        try:
+            obj = db.query(SaveGame).filter_by(id=save_id).first()
+            if not obj:
+                return False
+            obj.server_slot = None
+            obj.last_synced_version = None
+            obj.last_synced_at = None
+            obj.local_fingerprint = None
+            obj.updated_at = datetime.datetime.now()
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
     def mark_save_game_synced(save_id: int, version: int, fingerprint: Optional[str],
                               slot: Optional[int] = None) -> bool:
         db = SessionLocal()
@@ -577,13 +606,15 @@ class AppRepository:
     @staticmethod
     def create_bound_save_game(name: str, local_path: str, server_id: int,
                                version: Optional[int], fingerprint: Optional[str],
-                               slot: Optional[int] = None) -> Optional[SaveGame]:
+                               slot: Optional[int] = None,
+                               identifier: Optional[str] = None) -> Optional[SaveGame]:
         """创建已关联云端游戏的本地条目（linked_app_path 留空，单事务）。"""
         db = SessionLocal()
         try:
             now = datetime.datetime.now()
             obj = SaveGame(
                 name=name,
+                identifier=identifier or name,
                 local_path=local_path,
                 linked_app_path=None,
                 server_id=server_id,
@@ -607,7 +638,8 @@ class AppRepository:
     @staticmethod
     def bind_save_game_to_server(save_id: int, server_id: int,
                                  version: Optional[int], fingerprint: Optional[str],
-                                 slot: Optional[int] = None) -> bool:
+                                 slot: Optional[int] = None,
+                                 identifier: Optional[str] = None) -> bool:
         """把已有本地条目关联到云端游戏并写入同步状态（不改本地路径与文件）。"""
         db = SessionLocal()
         try:
@@ -615,6 +647,8 @@ class AppRepository:
             if not obj:
                 return False
             obj.server_id = server_id
+            if identifier:
+                obj.identifier = identifier
             obj.last_synced_version = version
             obj.last_synced_at = datetime.datetime.now()
             obj.local_fingerprint = fingerprint

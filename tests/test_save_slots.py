@@ -67,10 +67,23 @@ check("第 2 页：上一页可用", dlg.btn_prev.isEnabled())
 check("第 2 页：下一页禁用", not dlg.btn_next.isEnabled())
 dlg.close()
 
-for mode in ("upload", "download", "view"):
+for mode in ("upload", "download", "view", "delete"):
     d = SlotPickerDialog(None, slots, mode=mode)
     check(f"模式 {mode} 有标题", bool(d.windowTitle()))
     d.close()
+
+# --- 删除模式：空槽不可选，且 _on_ok 拒绝空槽 ---
+from PySide6.QtWidgets import QDialog, QMessageBox  # noqa: E402
+
+dd = SlotPickerDialog(None, slots, mode="delete")
+dcards = {c.slot: c for c in dd.findChildren(SlotCard)}
+check("删除模式：已占用槽可选", dcards[1].radio.isEnabled())
+check("删除模式：空槽不可选", not dcards[3].radio.isEnabled())
+dd.selected = 3  # 绕过 UI 直接模拟空槽选择
+QMessageBox.information = staticmethod(lambda *a, **k: QMessageBox.Ok)
+dd._on_ok()
+check("删除模式：空槽不通过校验", dd.result() != QDialog.Accepted)
+dd.close()
 
 print("ALL PASS" if ok else "SOME FAILED")
 sys.exit(0 if ok else 1)

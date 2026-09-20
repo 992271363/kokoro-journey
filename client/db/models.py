@@ -364,7 +364,8 @@ class SaveGame(Base):
 
     server_id = Column(Integer, nullable=True, index=True)
     server_slot = Column(Integer, nullable=True)  # 上次同步使用的存档位（1..10）
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=False)          # 显示名称（允许重名）
+    identifier = Column(String, nullable=True)     # 用户自定义标识符（配对键）
     local_path = Column(String, nullable=False)
     linked_app_path = Column(String, nullable=True)
 

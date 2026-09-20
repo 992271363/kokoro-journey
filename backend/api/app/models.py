@@ -116,16 +116,19 @@ class ServerAppDailyUsage(Base):
 # 云存档
 # ============================================================
 
-# 云存档游戏（用户自建：名称 + 由服务端生成的 id）
+# 云存档游戏（用户自建：显示名称 + 用户自定义标识符 + 由服务端生成的 id）
 class ServerSaveGame(Base):
     __tablename__ = 'server_save_games'
     __table_args__ = (
-        UniqueConstraint('user_id', 'name', name='uix_server_save_game_user_name'),
+        # 配对键是标识符（每用户唯一）；显示名称允许重名。
+        UniqueConstraint('user_id', 'identifier', name='uix_server_save_game_user_identifier'),
     )
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
     name = Column(String(255), nullable=False)
+    # 用户自定义标识符：客户端↔云端配对键（1..64，字母/数字/-/_/./中文）。
+    identifier = Column(String(64), nullable=False)
 
     created_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, nullable=True)

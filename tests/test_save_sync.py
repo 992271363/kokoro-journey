@@ -175,7 +175,7 @@ class _CloudFake:
         return _Resp(200, {"ok": True})
 
 
-cloud = _CloudFake([{"id": 7, "name": "MyGame", "latestVersion": 1}])
+cloud = _CloudFake([{"id": 7, "name": "MyGame", "identifier": "MyGame", "latestVersion": 1}])
 ss.get_session = lambda: cloud
 ok_reuse, res_reuse = ss.upload_game("tok", updir, "MyGame", server_id=None, slot=1)
 check("同名复用远端 id", ok_reuse and res_reuse["server_id"] == 7)
@@ -201,12 +201,39 @@ class _S409:
 
 
 ss.get_session = lambda: _S409(False)
-ok_d, res_d = ss.create_remote_game("tok", "X")
+ok_d, res_d = ss.create_remote_game("tok", "X", "X")
 check("非设备 409 返回真实 detail", (not ok_d) and res_d == "同名游戏已存在")
 
 ss.get_session = lambda: _S409(True)
-ok_t, res_t = ss.create_remote_game("tok", "X")
+ok_t, res_t = ss.create_remote_game("tok", "X", "X")
 check("设备 409 返回 TAKEN_OVER", (not ok_t) and res_t == ss.TAKEN_OVER)
+
+
+# --- 改名/改标识符(PATCH) 与 删除存档位(DELETE) 路径 ---
+class _MethodFake:
+    def __init__(self):
+        self.patched = None
+        self.deleted = None
+
+    def patch(self, url, **kw):
+        self.patched = (url, kw.get("json"))
+        return _Resp(200, {"id": 1, "name": "N", "identifier": "K"})
+
+    def delete(self, url, **kw):
+        self.deleted = url
+        return _Resp(200, {"ok": True, "slot": 3})
+
+
+mf = _MethodFake()
+ss.get_session = lambda: mf
+ok_p, res_p = ss.update_remote_game("tok", 1, name="N", identifier="K")
+check("改名/标识符走 PATCH",
+      ok_p and mf.patched[0].endswith("/saves/games/1")
+      and mf.patched[1] == {"name": "N", "identifier": "K"}
+      and res_p["identifier"] == "K")
+ok_e, res_e = ss.delete_slot("tok", 1, 3)
+check("删存档位走 DELETE",
+      ok_e and mf.deleted.endswith("/saves/games/1/slots/3") and res_e["slot"] == 3)
 
 
 # --- sha256 缓存：重复构建不重算 ---

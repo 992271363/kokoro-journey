@@ -30,6 +30,10 @@ check("关系 已绑定", sb.classify_cloud_binding([E(id=1, server_id=5, name="
 check("关系 新增", sb.classify_cloud_binding([E(id=1, server_id=1, name="B")], cloud) == sb.NEW)
 check("关系 同名未绑定", sb.classify_cloud_binding([E(id=1, server_id=None, name="A")], cloud) == sb.NAME_UNBOUND)
 check("关系 同名绑其它", sb.classify_cloud_binding([E(id=1, server_id=9, name="A")], cloud) == sb.NAME_OTHER)
+check("关系 按标识符配对（名称不同）",
+      sb.classify_cloud_binding(
+          [E(id=1, server_id=None, name="完全不同的名字", identifier="ident-x")],
+          {"id": 7, "name": "显示名", "identifier": "ident-x"}) == sb.NAME_UNBOUND)
 
 # --- cloud_game_state ---
 check("状态 云端已删除", sb.cloud_game_state(E(server_id=5), {}) == sb.STATE_DELETED)

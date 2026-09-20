@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import zipfile
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -25,9 +26,30 @@ from ..logger import logger
 
 router = APIRouter(prefix="/saves", tags=["Cloud Saves"])
 
+# 用户自定义标识符：字母/数字/-/_/. 与中文，1..64 字符（禁空格与路径分隔符）。
+_IDENTIFIER_RE = re.compile(r"^[0-9A-Za-z\u4e00-\u9fff._-]{1,64}$")
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _clean_name(name: Optional[str]) -> str:
+    value = (name or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="名称不能为空")
+    if len(value) > 255:
+        raise HTTPException(status_code=400, detail="名称过长")
+    return value
+
+
+def _clean_identifier(identifier: Optional[str]) -> str:
+    value = (identifier or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="标识符不能为空")
+    if not _IDENTIFIER_RE.match(value):
+        raise HTTPException(status_code=400, detail="标识符只能包含字母、数字、-、_、. 与中文（1-64 字符）")
+    return value
 
 
 def _require_device(db: Session, user: models.User, device_id: Optional[str]) -> models.ServerCloudSession:
@@ -81,6 +103,7 @@ def _game_view(game: models.ServerSaveGame, latest: Optional[models.ServerSaveVe
     return {
         "id": game.id,
         "name": game.name,
+        "identifier": game.identifier,
         "created_at": game.created_at,
         "updated_at": game.updated_at,
         "latest_version": latest.version_number if latest else None,
@@ -133,17 +156,48 @@ def create_game(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     _require_device(db, current_user, x_device_id)
-    name = (payload.name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="名称不能为空")
-    if db.query(models.ServerSaveGame).filter_by(user_id=current_user.id, name=name).first():
-        raise HTTPException(status_code=409, detail="同名游戏已存在")
-    game = models.ServerSaveGame(user_id=current_user.id, name=name,
+    name = _clean_name(payload.name)
+    identifier = _clean_identifier(payload.identifier)
+    if db.query(models.ServerSaveGame).filter_by(
+            user_id=current_user.id, identifier=identifier).first():
+        raise HTTPException(status_code=409, detail="标识符已存在")
+    game = models.ServerSaveGame(user_id=current_user.id, name=name, identifier=identifier,
                                  created_at=_now(), updated_at=_now())
     db.add(game)
     db.commit()
     db.refresh(game)
     return _game_view(game, None)
+
+
+@router.patch("/games/{game_id}", response_model=schemas.SaveGameView)
+def update_game(
+    game_id: int,
+    payload: schemas.SaveGameUpdate,
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """改名 / 改标识符；显示名称允许重名，标识符每用户唯一。"""
+    game = _get_own_game(db, current_user, game_id)
+    _require_device(db, current_user, x_device_id)
+
+    if payload.name is not None:
+        game.name = _clean_name(payload.name)
+    if payload.identifier is not None:
+        identifier = _clean_identifier(payload.identifier)
+        clash = db.query(models.ServerSaveGame).filter(
+            models.ServerSaveGame.user_id == current_user.id,
+            models.ServerSaveGame.identifier == identifier,
+            models.ServerSaveGame.id != game_id,
+        ).first()
+        if clash is not None:
+            raise HTTPException(status_code=409, detail="标识符已存在")
+        game.identifier = identifier
+
+    game.updated_at = _now()
+    db.commit()
+    db.refresh(game)
+    return _game_view(game, _latest_committed(db, game_id))
 
 
 @router.get("/games", response_model=List[schemas.SaveGameView])
@@ -202,6 +256,44 @@ def list_slots(
         })
     return out
 
+
+@router.delete("/games/{game_id}/slots/{slot}", status_code=status.HTTP_200_OK)
+def delete_slot(
+    game_id: int,
+    slot: int,
+    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """删除某个存档位内的存档（保留游戏与其它槽位，本地文件不受影响）。"""
+    game = _get_own_game(db, current_user, game_id)
+    _require_device(db, current_user, x_device_id)
+    if not (1 <= slot <= save_storage.SLOT_COUNT):
+        raise HTTPException(status_code=400, detail=f"存档位非法（应为 1..{save_storage.SLOT_COUNT}）")
+
+    versions = db.query(models.ServerSaveVersion).filter_by(
+        game_id=game_id, slot=slot
+    ).all()
+    if not versions:
+        raise HTTPException(status_code=404, detail="该存档位为空")
+
+    removed: list[int] = []
+    for ver in versions:
+        db.query(models.ServerSaveFile).filter_by(version_id=ver.id).delete(
+            synchronize_session=False)
+        removed.append((ver.version_number, ver.id))
+        db.delete(ver)
+    game.updated_at = _now()
+    db.commit()
+
+    for version_number, version_id in removed:
+        save_storage.remove_tree(
+            save_storage.version_dir(current_user.id, game_id, version_number))
+        save_storage.remove_tree(
+            save_storage.temp_dir(current_user.id, game_id, version_id))
+
+    logger.info(f"用户 {current_user.username} 删除游戏 {game.name} 存档位 {slot}")
+    return {"ok": True, "slot": slot, "removed": [v[0] for v in removed]}
 
 # ---------------- 版本（存档位覆盖写入） ----------------
 
@@ -596,7 +688,10 @@ def delete_version(
     if ver is None:
         raise HTTPException(status_code=404, detail="版本不存在")
     vnumber = ver.version_number
+    db.query(models.ServerSaveFile).filter_by(version_id=ver.id).delete(
+        synchronize_session=False)
     db.delete(ver)
     db.commit()
     save_storage.remove_tree(save_storage.version_dir(current_user.id, game_id, vnumber))
+    save_storage.remove_tree(save_storage.temp_dir(current_user.id, game_id, ver.id))
     return {"ok": True}

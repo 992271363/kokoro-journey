@@ -124,10 +124,12 @@ class SaveSlotView(CamelAliasModel):
 
 class SaveGameCreate(CamelAliasModel):
     name: str
+    identifier: str
 
 
-class SaveGameRename(CamelAliasModel):
-    name: str
+class SaveGameUpdate(CamelAliasModel):
+    name: Optional[str] = None
+    identifier: Optional[str] = None
 
 
 class SaveBatchDownloadRequest(CamelAliasModel):
@@ -137,6 +139,7 @@ class SaveBatchDownloadRequest(CamelAliasModel):
 class SaveGameView(CamelAliasModel):
     id: int
     name: str
+    identifier: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     latest_version: Optional[int] = None

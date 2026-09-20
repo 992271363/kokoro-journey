@@ -65,6 +65,19 @@ def create_db_and_tables():
         except Exception:
             pass
 
+        # 云存档：显示名称与用户自定义标识符拆分（存量库补列 + 用名称回填）
+        try:
+            conn.execute(text(
+                "ALTER TABLE save_games ADD COLUMN identifier VARCHAR"
+            ))
+            conn.execute(text(
+                "UPDATE save_games SET identifier = name "
+                "WHERE identifier IS NULL OR identifier = ''"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+
 
 def delete_database():
     if os.path.exists(db_path):

@@ -50,22 +50,40 @@ _vidx = insp.get_indexes("server_save_versions")
 check("存在 (game_id, slot) 索引",
       any((i.get("column_names") or []) == ["game_id", "slot"] for i in _vidx))
 
-# 唯一约束：同用户同名游戏
+gcols = {c["name"] for c in insp.get_columns("server_save_games")}
+check("save_games 含 identifier", "identifier" in gcols)
+_guq = insp.get_unique_constraints("server_save_games")
+check("唯一约束为 (user_id, identifier)",
+      any((c.get("column_names") or []) == ["user_id", "identifier"] for c in _guq))
+check("旧 (user_id, name) 唯一约束已移除",
+      all((c.get("column_names") or []) != ["user_id", "name"] for c in _guq))
+
+# 唯一约束：同用户标识符唯一；显示名称可重复
 session = database.SessionLocal()
 user = models.User(username="t", hashed_password="x")
 session.add(user)
 session.commit()
 
-session.add(models.ServerSaveGame(user_id=user.id, name="GameA"))
+session.add(models.ServerSaveGame(user_id=user.id, name="GameA", identifier="game-a"))
 session.commit()
+
 dup_ok = False
 try:
-    session.add(models.ServerSaveGame(user_id=user.id, name="GameA"))
+    session.add(models.ServerSaveGame(user_id=user.id, name="Other", identifier="game-a"))
     session.commit()
     dup_ok = True
 except Exception:
     session.rollback()
-check("同用户同名游戏被唯一约束拒绝", not dup_ok)
+check("同用户同标识符被唯一约束拒绝", not dup_ok)
+
+name_ok = False
+try:
+    session.add(models.ServerSaveGame(user_id=user.id, name="GameA", identifier="game-b"))
+    session.commit()
+    name_ok = True
+except Exception:
+    session.rollback()
+check("同用户重名（标识符不同）允许", name_ok)
 
 # 版本/文件基本写入
 game = session.query(models.ServerSaveGame).first()

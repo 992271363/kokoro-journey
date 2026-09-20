@@ -2,16 +2,16 @@
 ; Kokoro Journey — Inno Setup 安装脚本
 ; 用法: ISCC.exe KokoroJourney.iss
 ;       正式构建请用 build_release.ps1 结尾打印的命令注入版本号:
-;       ISCC.exe /DMyAppVersion="v2026.9.15-1.2.0" KokoroJourney.iss
+;       ISCC.exe /DMyAppVersion="v2026.9.20-1.2.1" KokoroJourney.iss
 ; 前提: 先运行 build_release.ps1（会同步生成 client\dist）
 ; ============================================================
 
 #define MyAppName "Kokoro Journey"
 #ifndef MyAppVersion
-#define MyAppVersion "v2026.9.15-1.2.0"
+#define MyAppVersion "v2026.9.20-1.2.1"
 #endif
 #ifndef MyFileVersion
-#define MyFileVersion "1.2.0.0"
+#define MyFileVersion "1.2.1.0"
 #endif
 #define MyAppPublisher "Kokoro Journey"
 #define MyAppExeName "kokoro-journey.exe"

@@ -51,10 +51,19 @@ check("状态 空槽位(无版本)", sa.entry_status(entry2, {"slot": 2, "versio
 
 # --- sync_entry_on_login 策略 ---
 calls = {"upload": 0, "download": 0}
+_up = {}
 sa.AppRepository.mark_save_game_synced = lambda *a, **k: True
-ss.upload_game = lambda *a, **k: (calls.__setitem__("upload", calls["upload"] + 1) or
-                                  (True, {"server_id": 10, "slot": 2, "version_id": 4,
-                                          "version": 4, "fingerprint": "fp"}))
+
+
+def _fake_upload(*a, **k):
+    calls["upload"] += 1
+    _up["args"] = a
+    _up["kwargs"] = k
+    return True, {"server_id": 10, "slot": 2, "version_id": 4,
+                  "version": 4, "fingerprint": "fp"}
+
+
+ss.upload_game = _fake_upload
 ss.prepare_download = lambda *a, **k: (calls.__setitem__("download", calls["download"] + 1) or (True, "/tmp/x"))
 ss.apply_download = lambda *a, **k: (True, "")
 
@@ -66,6 +75,9 @@ check("策略 未关联云端跳过", sa.sync_entry_on_login("t", E(server_id=No
 ss.list_slots = lambda *a, **k: (True, [dict(s) for s in slots_same])
 r = sa.sync_entry_on_login("t", entry)
 check("策略 本地改动->上传", r[0] and calls["upload"] == 1 and "已上传" in r[1])
+check("登录上传携带标识符与 server_id",
+      _up["args"][3] == (getattr(entry, "identifier", None) or entry.name)
+      and _up["kwargs"].get("server_id") == 10)
 
 ss.list_slots = lambda *a, **k: (True, [dict(s) for s in slots_newer])
 r = sa.sync_entry_on_login("t", entry2)
@@ -80,13 +92,14 @@ ss._find_remote_game_id = lambda *a, **k: 10
 ss.list_slots = lambda *a, **k: (True, [{"slot": 1, "versionId": 11, "createdAt": "2026-01-01"},
                                         {"slot": 2, "versionId": None}])
 _picked = {}
-ss.upload_game = lambda t, p, n, sid=None, slot=None, **k: (
-    _picked.update({"sid": sid, "slot": slot}) or
+ss.upload_game = lambda t, p, n, ident=None, sid=None, slot=None, **k: (
+    _picked.update({"sid": sid, "slot": slot, "identifier": ident}) or
     (True, {"server_id": sid, "slot": slot, "version_id": 5, "version": 5, "fingerprint": "fp"}))
 e_unbound = E(id=9, server_id=None, name="G", local_path=d,
               local_fingerprint=fp, last_synced_version=None, server_slot=None)
 ok_u, _res_u = sa.upload_entry("t", e_unbound)
-check("自动上传复用同名远端并选空槽", ok_u and _picked == {"sid": 10, "slot": 2})
+check("自动上传复用同名远端并选空槽",
+      ok_u and _picked.get("sid") == 10 and _picked.get("slot") == 2)
 
 # --- 关联进程匹配 ---
 from core.tracker import add_or_get_watched_app  # noqa: E402

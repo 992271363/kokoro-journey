@@ -28,12 +28,12 @@ STATE_NO_VERSION = "no_version"  # 游戏在，但暂无版本
 
 def classify_cloud_binding(entries, cloud_game) -> str:
     gid = cloud_game.get("id")
-    name = cloud_game.get("name")
+    key = cloud_game.get("identifier") or cloud_game.get("name")
     for e in entries:
         if e.server_id is not None and e.server_id == gid:
             return BOUND_SAME
     for e in entries:
-        if e.name == name:
+        if (getattr(e, "identifier", None) or e.name) == key:
             return NAME_UNBOUND if e.server_id is None else NAME_OTHER
     return NEW
 
@@ -98,10 +98,12 @@ def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entrie
         return False, backup
 
     fingerprint = ss.tree_fingerprint(local_path)
+    identifier = cloud_game.get("identifier")
 
     if bind_entry_id is not None:
         if not AppRepository.bind_save_game_to_server(bind_entry_id, server_id,
-                                                      version_id, fingerprint, slot):
+                                                      version_id, fingerprint, slot,
+                                                      identifier=identifier):
             return False, "关联本地条目失败"
         local_id = bind_entry_id
     else:
@@ -112,7 +114,7 @@ def download_cloud_game_to(token: str, cloud_game: dict, local_path: str, entrie
         else:
             obj = AppRepository.create_bound_save_game(
                 cloud_game.get("name") or "未命名", local_path, server_id,
-                version_id, fingerprint, slot)
+                version_id, fingerprint, slot, identifier=identifier)
             if obj is None:
                 return False, "创建本地条目失败"
             local_id = obj.id

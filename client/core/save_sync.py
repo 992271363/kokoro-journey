@@ -227,6 +227,20 @@ def _post_json(token: str, path: str, payload: Optional[dict] = None,
     return True, r.json()
 
 
+def _patch_json(token: str, path: str, payload: Optional[dict] = None,
+                timeout: int = TIMEOUT) -> Tuple[bool, object]:
+    try:
+        r = _send(lambda: get_session().patch(f"{API_URL}/{path.lstrip('/')}", json=payload,
+                                              headers=_headers(token), timeout=timeout))
+    except requests.exceptions.RequestException as e:
+        return False, _friendly_error(e)
+    if r.status_code == 409:
+        return False, _detail_or_taken_over(r)
+    if r.status_code >= 400:
+        return False, _detail(r)
+    return True, r.json()
+
+
 def _get_json(token: str, path: str, params: Optional[dict] = None,
               timeout: int = TIMEOUT) -> Tuple[bool, object]:
     try:
@@ -268,20 +282,32 @@ def list_games(token: str) -> Tuple[bool, object]:
     return _get_json(token, "/saves/games")
 
 
-def create_remote_game(token: str, name: str) -> Tuple[bool, object]:
-    return _post_json(token, "/saves/games", {"name": name})
+def create_remote_game(token: str, name: str, identifier: str) -> Tuple[bool, object]:
+    return _post_json(token, "/saves/games", {"name": name, "identifier": identifier})
 
 
-def _find_remote_game_id(token: str, name: str) -> Optional[int]:
-    """按名字查已存在的远端游戏 id。
+def _find_remote_game_id(token: str, identifier: str) -> Optional[int]:
+    """按标识符查已存在的远端游戏 id。
 
-    上次上传半途失败时服务端可能已建好同名游戏（本地 server_id 仍为空），
-    这里先复用，避免重试时再建同名被 409 拒绝。
+    上次上传半途失败时服务端可能已建好该游戏（本地 server_id 仍为空），
+    这里先复用，避免重试时再建被 409 拒绝。
     """
+    if not identifier:
+        return None
     ok, games = list_games(token)
     if not ok or not isinstance(games, list):
         return None
-    return next((g["id"] for g in games if g.get("name") == name), None)
+    return next((g["id"] for g in games if g.get("identifier") == identifier), None)
+
+
+def update_remote_game(token: str, server_id: int, name: Optional[str] = None,
+                       identifier: Optional[str] = None) -> Tuple[bool, object]:
+    payload: dict = {}
+    if name is not None:
+        payload["name"] = name
+    if identifier is not None:
+        payload["identifier"] = identifier
+    return _patch_json(token, f"/saves/games/{server_id}", payload)
 
 
 def delete_remote_game(token: str, server_id: int) -> Tuple[bool, object]:
@@ -305,6 +331,11 @@ def list_slots(token: str, server_id: int) -> Tuple[bool, object]:
     return _get_json(token, f"/saves/games/{server_id}/slots")
 
 
+def delete_slot(token: str, server_id: int, slot: int) -> Tuple[bool, object]:
+    """删除某个存档位内的云端存档（保留游戏与其它槽位）。"""
+    return _delete(token, f"/saves/games/{server_id}/slots/{slot}")
+
+
 def pick_auto_slot(slots) -> Optional[int]:
     """自动上传选槽：数字最小的空槽；若无空槽，则选 createdAt 最旧的槽。"""
     if not slots:
@@ -315,12 +346,13 @@ def pick_auto_slot(slots) -> Optional[int]:
     return min(slots, key=lambda s: (str(s.get("createdAt") or ""), s.get("slot") or 0)).get("slot")
 
 
-def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] = None,
+def upload_game(token: str, local_dir: str, name: str, identifier: Optional[str] = None,
+                server_id: Optional[int] = None,
                 slot: Optional[int] = None, progress_cb=None) -> Tuple[bool, object]:
-    """把本地目录写入指定存档位（slot）；server_id 为空时先创建远端游戏。
+    """把本地目录写入指定存档位（slot）；server_id 为空时先按标识符复用/创建远端游戏。
 
-    覆盖写入由服务端按槽位处理；返回 (True, {"server_id","slot","version","fingerprint"})
-    或 (False, 错误)。
+    覆盖写入由服务端按槽位处理；返回
+    (True, {"server_id","slot","version_id","version","fingerprint"}) 或 (False, 错误)。
     """
     if slot is None:
         return False, "未指定存档位"
@@ -331,9 +363,10 @@ def upload_game(token: str, local_dir: str, name: str, server_id: Optional[int] 
     total = sum(int(m["size"]) for m in manifest)
 
     if server_id is None:
-        server_id = _find_remote_game_id(token, name)
+        game_key = identifier or name
+        server_id = _find_remote_game_id(token, game_key)
         if server_id is None:
-            ok, res = create_remote_game(token, name)
+            ok, res = create_remote_game(token, name, game_key)
             if not ok:
                 return False, res
             server_id = res["id"]

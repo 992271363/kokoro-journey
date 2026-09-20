@@ -5,6 +5,7 @@ P1：手动上传/下载、版本与云端文件查看、冲突提示、单设�
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread
@@ -31,6 +32,34 @@ STATUS_TEXT = {
     sb.STATE_DELETED: "云端已删除",
     sb.STATE_NO_VERSION: "云端暂无版本",
 }
+
+# 用户自定义标识符：字母/数字/-/_/. 与中文，1..64 字符（与服务端校验一致）。
+_IDENTIFIER_RE = re.compile(r"^[0-9A-Za-z\u4e00-\u9fff._-]{1,64}$")
+_IDENTIFIER_INVALID = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._-]+")
+
+
+def sanitize_identifier(name: str) -> str:
+    """把名称转成合法标识符：非法字符段替换为 '-'，去掉首尾符号，截断到 64。"""
+    value = _IDENTIFIER_INVALID.sub("-", (name or "").strip()).strip("-._")
+    return value[:64]
+
+
+def default_identifier(name: str, taken=None) -> str:
+    """给名称生成默认标识符；为空或与已用标识符冲突时退化为 game-N。"""
+    taken = taken or set()
+    candidate = sanitize_identifier(name)
+    if candidate and candidate not in taken:
+        return candidate
+    n = 1
+    while f"game-{n}" in taken:
+        n += 1
+    return f"game-{n}"
+
+
+def _same_local_path(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
 class AppPickDialog(QDialog):
@@ -133,15 +162,20 @@ class AppPickDialog(QDialog):
 
 
 class AddSaveGameDialog(QDialog):
-    def __init__(self, parent=None):
+    """新建 / 编辑本地存档条目（名称、标识符、目录、关联应用）。"""
+
+    def __init__(self, parent=None, entry=None, taken_identifiers=None):
         super().__init__(parent)
-        self.setWindowTitle("新建本地存档条目")
+        self._entry = entry
+        self._taken = set(taken_identifiers or ())
+        self.setWindowTitle("编辑本地存档条目" if entry is not None else "新建本地存档条目")
         self.setMinimumWidth(460)
         form = QFormLayout(self)
 
         self._linked_path = None
         self._linked_name = ""
         self._name_edited = False
+        self._identifier_edited = False
 
         # 1) 关联应用（可选）
         app_row = QHBoxLayout()
@@ -159,13 +193,21 @@ class AddSaveGameDialog(QDialog):
         app_row.addWidget(btn_clear)
         form.addRow("关联应用：", app_row)
 
-        # 2) 名称（选择应用后预填应用名；用户手改后不再覆盖）
+        # 2) 名称（展示用，可重复；选择应用后预填；用户手改后不再覆盖）
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("例如：某游戏")
         self.name_edit.textEdited.connect(self._on_name_edited)
         form.addRow("名称：", self.name_edit)
 
-        # 3) 存档目录
+        # 3) 用户自定义标识符（配对键；默认由名称生成，可改）
+        self.identifier_edit = QLineEdit()
+        self.identifier_edit.setPlaceholderText("用于区分云端存档，例如 my-save")
+        self.identifier_edit.setToolTip(
+            "客户端与云端配对用的唯一标识，可含字母、数字、-、_、. 与中文（1-64 字符）")
+        self.identifier_edit.textEdited.connect(self._on_identifier_edited)
+        form.addRow("标识符：", self.identifier_edit)
+
+        # 4) 存档目录
         dir_row = QHBoxLayout()
         self.dir_edit = QLineEdit()
         self.dir_edit.setReadOnly(True)
@@ -181,8 +223,25 @@ class AddSaveGameDialog(QDialog):
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
 
+        if entry is not None:
+            self._taken.discard(getattr(entry, "identifier", None) or "")
+            self.name_edit.setText(entry.name or "")
+            self.identifier_edit.setText(getattr(entry, "identifier", None) or entry.name or "")
+            self.dir_edit.setText(entry.local_path or "")
+            self._linked_path = entry.linked_app_path
+            if entry.linked_app_path:
+                self.app_edit.setText(os.path.basename(entry.linked_app_path))
+            # 编辑态：两个字段都已“被用户确认过”，不自动联动覆盖
+            self._name_edited = True
+            self._identifier_edited = True
+
     def _on_name_edited(self, _text):
         self._name_edited = True
+        if not self._identifier_edited:
+            self.identifier_edit.setText(default_identifier(self.name_edit.text(), self._taken))
+
+    def _on_identifier_edited(self, _text):
+        self._identifier_edited = True
 
     def _pick_app(self):
         dlg = AppPickDialog(self)
@@ -198,6 +257,8 @@ class AddSaveGameDialog(QDialog):
         self.app_edit.setText(exe_name)
         if not self._name_edited:
             self.name_edit.setText(exe_name)
+            if not self._identifier_edited:
+                self.identifier_edit.setText(default_identifier(exe_name, self._taken))
 
     def _clear_app(self):
         self._linked_path = None
@@ -213,6 +274,17 @@ class AddSaveGameDialog(QDialog):
         if not self.name_edit.text().strip():
             QMessageBox.warning(self, "提示", "请填写名称。")
             return
+        identifier = self.identifier_edit.text().strip()
+        if not identifier:
+            QMessageBox.warning(self, "提示", "请填写标识符。")
+            return
+        if not _IDENTIFIER_RE.match(identifier):
+            QMessageBox.warning(self, "提示",
+                                "标识符只能包含字母、数字、-、_、. 与中文（1-64 字符）。")
+            return
+        if identifier in self._taken:
+            QMessageBox.warning(self, "提示", "该标识符已被本地另一条目使用，请换一个。")
+            return
         if not self.dir_edit.text().strip() or not os.path.isdir(self.dir_edit.text()):
             QMessageBox.warning(self, "提示", "请选择存在的存档目录。")
             return
@@ -221,6 +293,7 @@ class AddSaveGameDialog(QDialog):
     def values(self):
         return {
             "name": self.name_edit.text().strip(),
+            "identifier": self.identifier_edit.text().strip(),
             "local_path": os.path.normpath(self.dir_edit.text().strip()),
             "linked_app_path": self._linked_path,
         }
@@ -410,6 +483,7 @@ class SlotPickerDialog(QDialog):
         "upload": ("选择上传存档位", "选择一个存档位写入本地存档；已占用的槽位会被覆盖。"),
         "download": ("选择下载存档位", "选择一个存档位下载到本地；将覆盖本地存档（覆盖前会备份）。"),
         "view": ("查看清单", "选择要查看文件清单的存档位。"),
+        "delete": ("删除云端存档位", "选择要删除的存档位（仅云端；本地文件与其它槽位不受影响）。"),
     }
 
     def __init__(self, parent, slots, mode: str = "upload"):
@@ -443,6 +517,9 @@ class SlotPickerDialog(QDialog):
                 if slot > total:
                     break
                 card = SlotCard(slot, self._slots.get(slot))
+                if mode == "delete" and not (self._slots.get(slot) or {}).get("versionId"):
+                    # 删除模式只允许选有内容的存档位
+                    card.radio.setEnabled(False)
                 self._group.addButton(card.radio, slot)
                 grid.addWidget(card, 0, col)
             self._pages.addWidget(page)
@@ -482,6 +559,9 @@ class SlotPickerDialog(QDialog):
     def _on_ok(self):
         if self.selected is None:
             QMessageBox.information(self, "提示", "请选择一个存档位。")
+            return
+        if self.mode == "delete" and not (self._slots.get(self.selected) or {}).get("versionId"):
+            QMessageBox.information(self, "提示", "该存档位为空。")
             return
         self.accept()
 
@@ -564,13 +644,19 @@ class PersonalCenter(QDialog):
         self.btn_del_remote.setToolTip("删除账号下的云端存档（本地不受影响）")
         self.btn_del_local = QPushButton("删除目录")
         self.btn_del_local.setToolTip("仅删除本地条目，不删除磁盘上的存档目录，也不影响云端存档")
+        self.btn_edit = QPushButton("编辑条目")
+        self.btn_edit.setToolTip("修改名称、标识符、存档目录与关联应用")
+        self.btn_del_slot = QPushButton("删除存档位…")
+        self.btn_del_slot.setToolTip("删除某个存档位内的云端存档（本地文件不受影响）")
 
         row1 = QHBoxLayout()
-        for b in (self.btn_from_cloud, self.btn_add, self.btn_upload, self.btn_download):
+        for b in (self.btn_from_cloud, self.btn_add, self.btn_edit,
+                  self.btn_upload, self.btn_download):
             row1.addWidget(b)
         row1.addStretch()
         row2 = QHBoxLayout()
-        for b in (self.btn_view, self.btn_unbind, self.btn_del_remote, self.btn_del_local):
+        for b in (self.btn_view, self.btn_del_slot, self.btn_unbind,
+                  self.btn_del_remote, self.btn_del_local):
             row2.addWidget(b)
         row2.addStretch()
         layout.addLayout(row1)
@@ -578,9 +664,11 @@ class PersonalCenter(QDialog):
 
         self.btn_from_cloud.clicked.connect(self._open_cloud_games)
         self.btn_add.clicked.connect(self._add)
+        self.btn_edit.clicked.connect(self._edit)
         self.btn_upload.clicked.connect(self._upload)
         self.btn_download.clicked.connect(self._download_latest)
         self.btn_view.clicked.connect(self._view_cloud)
+        self.btn_del_slot.clicked.connect(self._delete_slot)
         self.btn_unbind.clicked.connect(self._unbind)
         self.btn_del_remote.clicked.connect(self._delete_remote)
         self.btn_del_local.clicked.connect(self._delete_local)
@@ -647,6 +735,8 @@ class PersonalCenter(QDialog):
             self.table.insertRow(r)
             name_item = QTableWidgetItem(e.name)
             name_item.setData(Qt.UserRole, e.id)
+            ident = getattr(e, "identifier", None) or e.name
+            name_item.setToolTip(f"标识符：{ident}")
             self.table.setItem(r, 0, name_item)
             self.table.setItem(r, 1, QTableWidgetItem(e.local_path or ""))
             self.table.setItem(r, 2, QTableWidgetItem(f"v{latest}" if latest else "—"))
@@ -665,8 +755,10 @@ class PersonalCenter(QDialog):
         entry = self._selected_entry()
         has = entry is not None
         self.btn_upload.setEnabled(has)
+        self.btn_edit.setEnabled(has)
         self.btn_download.setEnabled(has and entry.server_id is not None)
         self.btn_view.setEnabled(has and entry.server_id is not None)
+        self.btn_del_slot.setEnabled(has and entry.server_id is not None)
         self.btn_del_remote.setEnabled(has and entry.server_id is not None)
         self.btn_del_local.setEnabled(has)
         deleted = has and entry.server_id is not None and entry.server_id not in self._cloud
@@ -685,8 +777,9 @@ class PersonalCenter(QDialog):
             return
 
         binding = sb.classify_cloud_binding(entries, cloud_game)
+        cloud_key = cloud_game.get("identifier") or cloud_game.get("name")
         if binding == sb.NAME_OTHER:
-            QMessageBox.warning(self, "冲突", "本地已有同名条目且已关联其它云端游戏，请手动处理。")
+            QMessageBox.warning(self, "冲突", "本地已有相同标识符的条目且已关联其它云端游戏，请手动处理。")
             return
 
         bind_entry_id = None
@@ -697,10 +790,11 @@ class PersonalCenter(QDialog):
             local_path = bound.local_path
         elif binding == sb.NAME_UNBOUND:
             existing = next((e for e in entries
-                             if e.name == cloud_game["name"] and e.server_id is None), None)
+                             if (getattr(e, "identifier", None) or e.name) == cloud_key
+                             and e.server_id is None), None)
             if existing is None:
                 return
-            choice = self._ask_name_conflict(cloud_game["name"])
+            choice = self._ask_name_conflict(cloud_game.get("name") or cloud_key)
             if choice == "cancel":
                 return
             if choice == "bind":
@@ -786,15 +880,68 @@ class PersonalCenter(QDialog):
         AppRepository.clear_save_game_server_id(entry.id)
         self.refresh()
 
+    def _taken_identifiers(self, exclude_id=None):
+        result = set()
+        for e in AppRepository.get_all_save_games():
+            if exclude_id is not None and e.id == exclude_id:
+                continue
+            result.add((getattr(e, "identifier", None) or e.name) or "")
+        result.discard("")
+        return result
+
     def _add(self):
-        dlg = AddSaveGameDialog(self)
+        dlg = AddSaveGameDialog(self, taken_identifiers=self._taken_identifiers())
         if dlg.exec() != QDialog.Accepted:
             return
         v = dlg.values()
-        if AppRepository.create_save_game(v["name"], v["local_path"], v["linked_app_path"]) is None:
+        if AppRepository.create_save_game(v["name"], v["local_path"],
+                                          v["linked_app_path"], v["identifier"]) is None:
             QMessageBox.warning(self, "失败", "创建本地条目失败。")
             return
         self.refresh()
+
+    def _edit(self):
+        entry = self._selected_entry()
+        if entry is None:
+            return
+        dlg = AddSaveGameDialog(self, entry=entry,
+                                taken_identifiers=self._taken_identifiers(exclude_id=entry.id))
+        if dlg.exec() != QDialog.Accepted:
+            return
+        v = dlg.values()
+        for e in AppRepository.get_all_save_games():
+            if e.id != entry.id and _same_local_path(e.local_path, v["local_path"]):
+                QMessageBox.warning(self, "提示", "该目录已被本地另一存档条目占用。")
+                return
+
+        changed_cloud = entry.server_id is not None and (
+            v["name"] != entry.name
+            or v["identifier"] != (getattr(entry, "identifier", None) or entry.name))
+        if changed_cloud:
+            self._pending_edit = (entry, v)
+            self._busy(True, "正在更新云端...")
+            self._run_worker(ss.update_remote_game, self._on_edit_remote_done,
+                             self._token, entry.server_id, v["name"], v["identifier"])
+            return
+        self._apply_edit(entry, v)
+
+    def _on_edit_remote_done(self, ok, res):
+        self._busy(False)
+        entry, v = getattr(self, "_pending_edit", (None, None))
+        if entry is None:
+            return
+        if not ok:
+            QMessageBox.warning(self, "更新云端失败", ss_http_msg(res))
+            return
+        self._apply_edit(entry, v)
+
+    def _apply_edit(self, entry, v):
+        if AppRepository.update_save_game(
+                entry.id, name=v["name"], identifier=v["identifier"],
+                local_path=v["local_path"], linked_app_path=v["linked_app_path"]):
+            self.refresh()
+        else:
+            QMessageBox.warning(self, "失败", "保存修改失败。")
 
     def _upload(self, entry=None):
         entry = entry or self._selected_entry()
@@ -833,7 +980,8 @@ class PersonalCenter(QDialog):
         self._pending_upload_slot = slot
         self._run_worker(
             ss.upload_game, self._on_upload_done,
-            self._token, entry.local_path, entry.name, entry.server_id, slot)
+            self._token, entry.local_path, entry.name,
+            getattr(entry, "identifier", None) or entry.name, entry.server_id, slot)
 
     def _confirm_take_over(self) -> bool:
         """云端被其他设备占用时，询问是否在本机接管云同步。接管成功返回 True。"""
@@ -940,6 +1088,51 @@ class PersonalCenter(QDialog):
         SlotFilesDialog(self, self._token, entry.server_id,
                         info.get("versionId"), dlg.selected_slot()).exec()
 
+    def _delete_slot(self):
+        entry = self._selected_entry()
+        if entry is None or entry.server_id is None:
+            return
+        slots = self._game_slots(entry.server_id)
+        if not any(s.get("versionId") for s in slots):
+            QMessageBox.information(self, "提示", "云端暂无可删除的存档位。")
+            return
+        dlg = SlotPickerDialog(self, slots, mode="delete")
+        if dlg.exec() != QDialog.Accepted:
+            return
+        slot = dlg.selected_slot()
+        info = dlg.selected_info() or {}
+        if not info.get("versionId"):
+            QMessageBox.information(self, "提示", "该存档位为空。")
+            return
+        ts = str(info.get("createdAt") or "")[:19].replace("T", " ")
+        if QMessageBox.question(
+            self, "删除存档位",
+            f"确定删除存档位 {slot} 的云端存档？\n（{ts}，{_fmt_size(info.get('totalSize', 0))}）\n"
+            f"本地文件与其它存档位不受影响。",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._pending_delete_slot = (entry, slot)
+        self._busy(True, "正在删除...")
+        self._run_worker(ss.delete_slot, self._on_delete_slot_done,
+                         self._token, entry.server_id, slot)
+
+    def _on_delete_slot_done(self, ok, res):
+        self._busy(False)
+        entry, slot = getattr(self, "_pending_delete_slot", (None, None))
+        if not ok:
+            if (res == ss.TAKEN_OVER and entry is not None
+                    and self._confirm_take_over()):
+                self._busy(True, "正在删除...")
+                self._run_worker(ss.delete_slot, self._on_delete_slot_done,
+                                 self._token, entry.server_id, slot)
+                return
+            QMessageBox.warning(self, "删除失败", ss_http_msg(res))
+            return
+        if entry is not None and entry.server_slot == slot:
+            AppRepository.clear_save_game_slot(entry.id)
+        QMessageBox.information(self, "完成", f"已删除存档位 {slot} 的云端存档。")
+        self.refresh()
+
     def _delete_remote(self):
         entry = self._selected_entry()
         if entry is None or entry.server_id is None:
@@ -968,8 +1161,9 @@ class PersonalCenter(QDialog):
     # ---------- 后台线程 ----------
 
     def _busy(self, busy: bool, text: str = ""):
-        for b in (self.btn_from_cloud, self.btn_add, self.btn_upload, self.btn_download,
-                  self.btn_view, self.btn_unbind, self.btn_del_remote, self.btn_del_local):
+        for b in (self.btn_from_cloud, self.btn_add, self.btn_edit, self.btn_upload,
+                  self.btn_download, self.btn_view, self.btn_del_slot, self.btn_unbind,
+                  self.btn_del_remote, self.btn_del_local):
             b.setEnabled(not busy)
         if text:
             self.status_label.setText(text)
