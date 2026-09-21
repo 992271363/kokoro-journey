@@ -158,23 +158,25 @@ async def upload_background(
     raw = await _read_upload(file)
     processed = _process_image(raw)
 
+    # 先落盘再写库：任何一步失败都要把已落盘的文件清掉，避免孤儿文件。
     filename = f"{uuid.uuid4().hex}.webp"
     dest = os.path.join(_user_dir(current_user.id), filename)
-    with open(dest, "wb") as fh:
-        fh.write(processed)
-
-    row = models.UserBackground(
-        user_id=current_user.id,
-        filename=filename,
-        original_name=(file.filename or "")[:255] or None,
-        content_type="image/webp",
-        size=len(processed),
-        created_at=_now(),
-    )
-    db.add(row)
-    db.flush()
-    _set_preference(db, current_user.id, f"custom:{row.id}")
+    row = None
     try:
+        with open(dest, "wb") as fh:
+            fh.write(processed)
+
+        row = models.UserBackground(
+            user_id=current_user.id,
+            filename=filename,
+            original_name=(file.filename or "")[:255] or None,
+            content_type="image/webp",
+            size=len(processed),
+            created_at=_now(),
+        )
+        db.add(row)
+        db.flush()
+        _set_preference(db, current_user.id, f"custom:{row.id}")
         db.commit()
     except Exception:
         db.rollback()

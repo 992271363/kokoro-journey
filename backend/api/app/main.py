@@ -2,6 +2,7 @@ from typing import List
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from . import models, schemas, auth, database
 from .routers import dashboard, saves, settings
@@ -27,8 +28,106 @@ def normalize_start_time(dt: datetime) -> datetime:
         return None
     return dt.astimezone(timezone.utc).replace(microsecond=0)
 
+# ── 启动时幂等补列/补索引 ──────────────────────────────────────────────
+# create_all 只会新建“缺失的表”，不会给已存在的旧表加列。历史版本新增过
+# 若干列（slot / identifier / bg_*），老库缺列时任何 SELECT 都会 500。
+# 这里在启动时对已知新增项做一次幂等的 ADD COLUMN / CREATE INDEX，失败仅告警。
+_COLUMN_MIGRATIONS = (
+    ("server_save_versions", "slot",
+     "ALTER TABLE server_save_versions ADD COLUMN slot INT NULL"),
+    ("server_save_games", "identifier",
+     "ALTER TABLE server_save_games ADD COLUMN identifier VARCHAR(64) NULL"),
+    ("user_preferences", "bg_mode",
+     "ALTER TABLE user_preferences ADD COLUMN bg_mode VARCHAR(16) NOT NULL DEFAULT 'auto'"),
+    ("user_preferences", "bg_dim",
+     "ALTER TABLE user_preferences ADD COLUMN bg_dim INT NULL"),
+    ("user_preferences", "bg_blur",
+     "ALTER TABLE user_preferences ADD COLUMN bg_blur INT NULL"),
+    ("user_preferences", "bg_fit",
+     "ALTER TABLE user_preferences ADD COLUMN bg_fit VARCHAR(16) NOT NULL DEFAULT 'cover'"),
+)
+
+_INDEX_MIGRATIONS = (
+    ("server_save_versions", "ix_server_save_version_game_slot",
+     "CREATE INDEX ix_server_save_version_game_slot "
+     "ON server_save_versions (game_id, slot)"),
+    ("server_save_games", "uix_server_save_game_user_identifier",
+     "CREATE UNIQUE INDEX uix_server_save_game_user_identifier "
+     "ON server_save_games (user_id, identifier)"),
+)
+
+# 用名称回填 identifier（SUBSTR 在 MySQL/MariaDB 与 SQLite 均可用）
+_IDENTIFIER_BACKFILL = (
+    "UPDATE server_save_games SET identifier = SUBSTR(name, 1, 64) "
+    "WHERE identifier IS NULL OR identifier = ''"
+)
+
+
+def _column_names(inspector, table: str) -> set:
+    try:
+        return {c["name"] for c in inspector.get_columns(table)}
+    except Exception:
+        return set()
+
+
+def _index_names(inspector, table: str) -> set:
+    names = set()
+    try:
+        names.update(i.get("name") for i in inspector.get_indexes(table))
+    except Exception:
+        pass
+    try:
+        names.update(u.get("name") for u in inspector.get_unique_constraints(table))
+    except Exception:
+        pass
+    return {n for n in names if n}
+
+
+def ensure_schema(engine=None) -> None:
+    """幂等地补齐历史新增列与索引；任何失败只告警，不阻断启动。"""
+    eng = engine if engine is not None else database.engine
+    try:
+        inspector = inspect(eng)
+        tables = set(inspector.get_table_names())
+    except Exception as e:  # 数据库不可用等情况
+        logger.warning(f"[ensure_schema] 无法检查数据库结构：{e}")
+        return
+
+    for table, column, ddl in _COLUMN_MIGRATIONS:
+        if table not in tables or column in _column_names(inspector, table):
+            continue
+        try:
+            with eng.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"[ensure_schema] 已补列 {table}.{column}")
+        except Exception as e:
+            logger.warning(f"[ensure_schema] 补列 {table}.{column} 失败：{e}")
+        inspector = inspect(eng)
+
+    # identifier 回填（仅影响空值）
+    if "server_save_games" in tables and "identifier" in _column_names(
+            inspector, "server_save_games"):
+        try:
+            with eng.begin() as conn:
+                conn.execute(text(_IDENTIFIER_BACKFILL))
+        except Exception as e:
+            logger.warning(f"[ensure_schema] identifier 回填失败：{e}")
+
+    for table, index, ddl in _INDEX_MIGRATIONS:
+        if table not in tables or index in _index_names(inspector, table):
+            continue
+        try:
+            with eng.begin() as conn:
+                conn.execute(text(ddl))
+            logger.info(f"[ensure_schema] 已补索引 {index}")
+        except Exception as e:
+            logger.warning(f"[ensure_schema] 补索引 {index} 失败：{e}")
+        inspector = inspect(eng)
+
+
 # 初始化数据库表
 models.Base.metadata.create_all(bind=database.engine)
+ensure_schema()
 
 app = FastAPI(title="Kokoro Journey API")
 app.include_router(dashboard.router)
