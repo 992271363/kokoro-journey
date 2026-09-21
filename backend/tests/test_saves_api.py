@@ -212,6 +212,21 @@ g = next((x for x in r.json() if x["id"] == game_id), None)
 check("list_games 含 latestVersionId", bool(g) and g.get("latestVersionId") == vid3)
 check("list_games 含 identifier", bool(g) and g.get("identifier") == "game-a")
 
+# --- 只读接口无需设备头（网页端） ---
+HA = {"Authorization": f"Bearer {token}"}
+check("无设备头可读游戏列表", client.get("/saves/games", headers=HA).status_code == 200)
+check("无设备头可读槽位",
+      client.get(f"/saves/games/{game_id}/slots", headers=HA).status_code == 200)
+check("无设备头可读文件清单",
+      client.get(f"/saves/games/{game_id}/versions/{vid3}/files", headers=HA).status_code == 200)
+check("无设备头可下载单文件",
+      client.get(f"/saves/games/{game_id}/versions/{vid3}/files/download",
+                 params={"path": "save/c.sav"}, headers=HA).status_code == 200)
+check("无设备头可批量下载",
+      client.post(f"/saves/games/{game_id}/versions/{vid3}/files-batch-download",
+                  json={"paths": ["save/c.sav"]}, headers=HA).status_code == 200)
+check("无 JWT 不可读（401）", client.get("/saves/games").status_code == 401)
+
 # --- 改名 / 改标识符 ---
 r = client.patch(f"/saves/games/{game_id}", json={"name": "Game A 改名"}, headers=H)
 check("改显示名 200",
@@ -270,14 +285,16 @@ check("清除备注 200",
 r = client.get(f"/saves/games/{game_id}/slots", headers=H)
 check("清除后备注为 null", next(x for x in r.json() if x["slot"] == 5)["label"] is None)
 
-# --- 单设备接管 ---
+# --- 单设备接管（写接口仍严格，只读已放宽） ---
 r = client.post("/saves/device/claim", headers={"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"})
 check("新设备登记成功", r.status_code == 200 and r.json()["previousDeviceId"] == "dev-A")
-r = client.get("/saves/games", headers=H)
-check("旧设备云操作被拒(409)", r.status_code == 409)
+r = client.patch(f"/saves/games/{game_id}", json={"name": "X"}, headers=H)
+check("旧设备写操作被拒(409)", r.status_code == 409)
 check("设备冲突带 X-Cloud-Error 头", r.headers.get("x-cloud-error") == "taken_over")
+check("旧设备仍可读列表", client.get("/saves/games", headers=H).status_code == 200)
 HB = {"Authorization": f"Bearer {token}", "X-Device-Id": "dev-B"}
-check("新设备云操作可用", client.get("/saves/games", headers=HB).status_code == 200)
+check("新设备写操作可用",
+      client.patch(f"/saves/games/{game_id}", json={"name": "Game A 改名"}, headers=HB).status_code == 200)
 
 try:
     os.remove(_db_path)

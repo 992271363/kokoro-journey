@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -7,6 +8,11 @@ const router = createRouter({
       path: '/',
       name: 'main',
       component: () => import('@/views/MainView.vue'),
+    },
+    {
+      path: '/saves',
+      name: 'saves',
+      component: () => import('@/views/SavesView.vue'),
     },
     {
       path: '/login',
@@ -28,6 +34,16 @@ const router = createRouter({
       meta: { hideTopBar: true }
     },
   ],
+})
+
+// 需要登录的页面统一守卫（登录/注册/404 标记 hideTopBar，放行）
+router.beforeEach((to) => {
+  if (to.meta.hideTopBar) return true
+  const authStore = useAuthStore()
+  if (!authStore.isAuthenticated) {
+    return { name: 'login' }
+  }
+  return true
 })
 
 export default router

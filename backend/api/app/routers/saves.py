@@ -202,11 +202,10 @@ def update_game(
 
 @router.get("/games", response_model=List[schemas.SaveGameView])
 def list_games(
-    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    _require_device(db, current_user, x_device_id)
+    """只读：网页端等只读客户端无需 X-Device-Id，不参与单设备接管。"""
     games = db.query(models.ServerSaveGame).filter_by(
         user_id=current_user.id
     ).order_by(models.ServerSaveGame.id).all()
@@ -233,13 +232,11 @@ def delete_game(
 @router.get("/games/{game_id}/slots", response_model=List[schemas.SaveSlotView])
 def list_slots(
     game_id: int,
-    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    """返回固定存档位列表（1..SLOT_COUNT）；空槽各字段为 null。"""
+    """返回固定存档位列表（1..SLOT_COUNT）；空槽各字段为 null。只读，不校验设备。"""
     _get_own_game(db, current_user, game_id)
-    _require_device(db, current_user, x_device_id)
     rows = db.query(models.ServerSaveVersion).filter_by(
         game_id=game_id, status="committed"
     ).all()
@@ -604,13 +601,11 @@ def commit_version(
 @router.get("/games/{game_id}/versions", deprecated=True)
 def list_versions(
     game_id: int,
-    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    """【已废弃】请改用 `GET /games/{id}/slots`；保留以兼容旧客户端。"""
+    """【已废弃】请改用 `GET /games/{id}/slots`；保留以兼容旧客户端。只读，不校验设备。"""
     _get_own_game(db, current_user, game_id)
-    _require_device(db, current_user, x_device_id)
     versions = db.query(models.ServerSaveVersion).filter_by(
         game_id=game_id, status="committed"
     ).order_by(models.ServerSaveVersion.version_number.desc()).all()
@@ -630,12 +625,11 @@ def list_versions(
 def list_version_files(
     game_id: int,
     version_id: int,
-    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    """只读：文件清单。只读客户端无需 X-Device-Id。"""
     _get_own_game(db, current_user, game_id)
-    _require_device(db, current_user, x_device_id)
     ver = _get_committed_version(db, game_id, version_id)
     rows = db.query(models.ServerSaveFile).filter_by(version_id=ver.id).order_by(
         models.ServerSaveFile.relative_path
@@ -651,12 +645,11 @@ def download_version_file(
     game_id: int,
     version_id: int,
     path: str,
-    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    """只读：下载单文件。只读客户端无需 X-Device-Id。"""
     _get_own_game(db, current_user, game_id)
-    _require_device(db, current_user, x_device_id)
     ver = _get_committed_version(db, game_id, version_id)
     try:
         rel = save_storage.safe_relpath(path)
@@ -675,16 +668,14 @@ def download_version_files_batch(
     game_id: int,
     version_id: int,
     payload: schemas.SaveBatchDownloadRequest,
-    x_device_id: Optional[str] = Header(None, alias="X-Device-Id"),
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """一次请求下载多个文件：内存 zip（仅传输、不落盘，不改文件级存储）。
 
-    paths 为空时返回整版；客户端按体积分批调用，单次内容很小。
+    paths 为空时返回整版；客户端按体积分批调用，单次内容很小。只读，不校验设备。
     """
     _get_own_game(db, current_user, game_id)
-    _require_device(db, current_user, x_device_id)
     ver = _get_committed_version(db, game_id, version_id)
 
     rows = db.query(models.ServerSaveFile).filter_by(version_id=ver.id).all()

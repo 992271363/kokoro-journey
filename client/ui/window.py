@@ -392,6 +392,15 @@ class Mywindow(QMainWindow):
         a = QAction("调整缩放…", self)
         a.triggered.connect(lambda: ZoomDialog(self, self).exec())
         vm.addAction(a)
+        a = QAction("放大列表（Ctrl + =）", self)
+        a.triggered.connect(lambda: self._change_table_zoom(1))
+        vm.addAction(a)
+        a = QAction("缩小列表（Ctrl + -）", self)
+        a.triggered.connect(lambda: self._change_table_zoom(-1))
+        vm.addAction(a)
+        a = QAction("重置缩放（Ctrl + 0）", self)
+        a.triggered.connect(self._reset_table_zoom)
+        vm.addAction(a)
         tm = mb.addMenu("工具")
         a = QAction("暂停·恢复监控", self)
         a.triggered.connect(self._toggle_monitor)
@@ -1519,6 +1528,25 @@ class Mywindow(QMainWindow):
                     self._change_table_zoom(notches)
                 event.accept()
                 return True
+        if (
+            isinstance(obj, QWidget)
+            and event.type() == QEvent.KeyPress
+            and event.modifiers() & Qt.ControlModifier
+        ):
+            # Ctrl + = / + 放大，Ctrl + - 缩小，Ctrl + 0 恢复 100%（含小键盘）
+            target = obj
+            if target.window() is self:
+                key = event.key()
+                if key in (Qt.Key_Plus, Qt.Key_Equal):
+                    self._change_table_zoom(1)
+                elif key in (Qt.Key_Minus, Qt.Key_Underscore):
+                    self._change_table_zoom(-1)
+                elif key == Qt.Key_0:
+                    self._reset_table_zoom()
+                else:
+                    return False
+                event.accept()
+                return True
         return False
 
     def _change_table_zoom(self, notches):
@@ -1529,6 +1557,13 @@ class Mywindow(QMainWindow):
             return
         self.table_manager.apply_zoom(new_zoom / 100.0)
         self._settings.set("tableZoom", new_zoom)
+
+    def _reset_table_zoom(self):
+        """把列表缩放恢复为 100%"""
+        if int(self._settings.get("tableZoom", 100)) == 100:
+            return
+        self.table_manager.apply_zoom(1.0)
+        self._settings.set("tableZoom", 100)
 
     def _apply_table_zoom_from_settings(self):
         zoom = int(self._settings.get("tableZoom", 100))

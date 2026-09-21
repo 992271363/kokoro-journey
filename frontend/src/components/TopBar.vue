@@ -35,6 +35,20 @@
         <span class="app-name">桌面活动管理系统</span>
       </div>
 
+      <!-- 主导航 -->
+      <nav class="main-nav">
+        <router-link to="/" class="nav-link" :class="{ active: route.path === '/' }">
+          <i class="fas fa-chart-line"></i> 仪表盘
+        </router-link>
+        <router-link
+          to="/saves"
+          class="nav-link"
+          :class="{ active: route.path.startsWith('/saves') }"
+        >
+          <i class="fas fa-cloud"></i> 云存档
+        </router-link>
+      </nav>
+
       <!-- 右侧：功能操作区 (修改部分) -->
       <div class="actions-area">
         
@@ -47,6 +61,9 @@
           
           <!-- 悬停或点击后展开的菜单 -->
           <div class="dropdown-menu">
+            <div class="menu-item" @click="router.push('/saves')">
+              <i class="fas fa-cloud"></i> 云存档
+            </div>
             <div class="menu-item logout-btn" @click="handleLogout">
               <i class="fas fa-sign-out-alt"></i> 退出登录
             </div>
@@ -67,10 +84,11 @@
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 
 // 点击 Logo 回首页
@@ -123,6 +141,38 @@ const handleLogout = () => {
   font-size: 1.15rem;
   font-weight: 600;
   color: #f7fafc;
+}
+
+/* --- 主导航 --- */
+.main-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    color 0.2s,
+    background-color 0.2s;
+}
+.nav-link i {
+  font-size: 0.85rem;
+}
+.nav-link:hover {
+  color: #e2e8f0;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.nav-link.active {
+  color: #fff;
+  background-color: rgba(66, 153, 225, 0.18);
 }
 
 /* --- 新增/修改的样式 --- */
