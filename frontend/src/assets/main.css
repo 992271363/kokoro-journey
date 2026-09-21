@@ -25,9 +25,9 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 3. 为 body 设置贯穿整个应用的背景 */
+/* 3. 为 body 设置贯穿整个应用的背景（具体图片由 --app-bg 控制，见 stores/background） */
 body {
-  background-image: url('@/assets/images/BG.jpg');
+  background-image: var(--app-bg, url('/backgrounds/BG1.jpg'));
   background-color: #1a202c; /* 图片加载失败时的备用色 */
   background-size: cover;
   background-position: center;

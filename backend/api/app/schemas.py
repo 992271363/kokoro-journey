@@ -157,3 +157,22 @@ class SaveGameView(CamelAliasModel):
 class SaveDeviceInfo(CamelAliasModel):
     active_device_id: Optional[str] = None
     previous_device_id: Optional[str] = None
+
+
+# ─── 用户偏好 / 背景 ───
+
+class UserBackgroundView(CamelAliasModel):
+    id: int
+    url: str
+    original_name: Optional[str] = None
+    size: int
+    created_at: Optional[datetime] = None
+
+
+class BackgroundState(CamelAliasModel):
+    background: str
+    uploads: List[UserBackgroundView] = []
+
+
+class BackgroundUpdate(CamelAliasModel):
+    background: str

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from . import models, schemas, auth, database
-from .routers import dashboard, saves
+from .routers import dashboard, saves, settings
 from .logger import logger
 
 
@@ -33,6 +33,7 @@ models.Base.metadata.create_all(bind=database.engine)
 app = FastAPI(title="Kokoro Journey API")
 app.include_router(dashboard.router)
 app.include_router(saves.router)
+app.include_router(settings.router)
 logger.info("后端 API 已启动。")
 
 #智能同步接口(采用手动事务控制)

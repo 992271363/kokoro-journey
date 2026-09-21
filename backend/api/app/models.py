@@ -220,3 +220,35 @@ class ServerCloudSession(Base):
     active_device_id = Column(String(64), nullable=False)
     updated_at = Column(DateTime, nullable=True)
 
+
+# ============================================================
+# 用户偏好 / 背景资源
+# ============================================================
+
+# 用户偏好（每个用户一行；目前仅背景选择）
+class UserPreference(Base):
+    __tablename__ = 'user_preferences'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, unique=True, index=True)
+    # 背景选择：'default:BG1'..'default:BG5' 或 'custom:<UserBackground.id>'
+    background = Column(String(64), nullable=False, default='default:BG1')
+    updated_at = Column(DateTime, nullable=True)
+
+
+# 用户上传的背景图（每人可多张，图库）
+class UserBackground(Base):
+    __tablename__ = 'user_backgrounds'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'filename', name='uix_user_background_user_filename'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+
+    filename = Column(String(255), nullable=False)       # 磁盘文件名（uuid.webp）
+    original_name = Column(String(255), nullable=True)   # 上传时的原始文件名（仅展示）
+    content_type = Column(String(64), nullable=False, default='image/webp')
+    size = Column(BigInteger, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=True)
+

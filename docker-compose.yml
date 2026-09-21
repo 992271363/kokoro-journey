@@ -43,6 +43,7 @@ services:
         - ./backend/api:/app
         - ./logs/backend:/app/logs
         - ./backend/saves:/app/saves
+        - ./backend/uploads:/app/uploads
       depends_on:
         database:
           condition: service_healthy

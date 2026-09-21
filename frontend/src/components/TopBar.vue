@@ -47,6 +47,13 @@
         >
           <i class="fas fa-cloud"></i> 云存档
         </router-link>
+        <router-link
+          to="/settings"
+          class="nav-link"
+          :class="{ active: route.path.startsWith('/settings') }"
+        >
+          <i class="fas fa-gear"></i> 设置
+        </router-link>
       </nav>
 
       <!-- 右侧：功能操作区 (修改部分) -->
