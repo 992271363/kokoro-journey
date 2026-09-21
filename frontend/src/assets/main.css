@@ -1,6 +1,5 @@
-/* src/assets/main.css - 恢复纯净的原始版本 */
+/* src/assets/main.css - 全局重置与基础样式（设计令牌见 theme.css） */
 
-/* 1. 全局盒子模型与重置 */
 *,
 *::before,
 *::after {
@@ -16,25 +15,18 @@ body,
   width: 100%;
 }
 
-/* 2. 设置全局字体和基础样式 */
 html {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
-    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 3. 为 body 设置贯穿整个应用的背景（具体图片由 --app-bg 控制，见 stores/background） */
 body {
-  background-image: var(--app-bg, url('/backgrounds/BG1.jpg'));
-  background-color: #1a202c; /* 图片加载失败时的备用色 */
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed; /* 固定背景，滚动时不移动 */
+  background-color: var(--bg-base);
+  color: var(--text);
+  min-height: 100vh;
 }
 
-/* 4. 让 #app 容器占满整个视口 */
 #app {
   width: 100%;
   min-height: 100vh;

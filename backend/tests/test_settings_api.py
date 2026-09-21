@@ -104,6 +104,29 @@ check("格式非法 400",
       client.put("/settings/background", json={"background": "whatever"}, headers=H)
       .status_code == 400)
 
+# --- 背景显示参数 ---
+r = client.get("/settings/background", headers=H)
+check("默认 auto/cover", r.json()["mode"] == "auto" and r.json()["fit"] == "cover"
+      and r.json()["dim"] is None and r.json()["blur"] is None)
+r = client.put("/settings/background/display",
+               json={"mode": "manual", "dim": 70, "blur": 12, "fit": "contain"}, headers=H)
+check("设置显示参数 200",
+      r.status_code == 200 and r.json()["mode"] == "manual" and r.json()["dim"] == 70
+      and r.json()["blur"] == 12 and r.json()["fit"] == "contain")
+r = client.get("/settings/background", headers=H)
+check("显示参数已持久化",
+      r.json()["mode"] == "manual" and r.json()["dim"] == 70 and r.json()["fit"] == "contain")
+check("mode 非法 400",
+      client.put("/settings/background/display", json={"mode": "x"}, headers=H).status_code == 400)
+check("fit 非法 400",
+      client.put("/settings/background/display", json={"fit": "stretch"}, headers=H).status_code == 400)
+check("dim 越界 400",
+      client.put("/settings/background/display", json={"dim": 101}, headers=H).status_code == 400)
+check("blur 越界 400",
+      client.put("/settings/background/display", json={"blur": 21}, headers=H).status_code == 400)
+check("回到 auto 400 无",
+      client.put("/settings/background/display", json={"mode": "auto"}, headers=H).status_code == 200)
+
 # --- 图库上限 10 张（已上传 1 张，再传 9 张后第 10 张失败） ---
 for i in range(9):
     rr = client.post("/settings/background/upload", headers=H,

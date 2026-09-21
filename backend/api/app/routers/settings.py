@@ -65,6 +65,21 @@ def _get_pref(db: Session, user_id: int) -> Optional[models.UserPreference]:
     return db.query(models.UserPreference).filter_by(user_id=user_id).first()
 
 
+def _state(db: Session, user: models.User) -> dict:
+    pref = _get_pref(db, user.id)
+    uploads = db.query(models.UserBackground).filter_by(
+        user_id=user.id
+    ).order_by(models.UserBackground.id.desc()).all()
+    return {
+        "background": pref.background if pref else FALLBACK_BACKGROUND,
+        "mode": pref.bg_mode if pref else "auto",
+        "dim": pref.bg_dim if pref else None,
+        "blur": pref.bg_blur if pref else None,
+        "fit": pref.bg_fit if pref else "cover",
+        "uploads": [_view(b) for b in uploads],
+    }
+
+
 def _set_preference(db: Session, user_id: int, value: str) -> models.UserPreference:
     pref = _get_pref(db, user_id)
     if pref is None:
@@ -124,14 +139,7 @@ def get_background(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    pref = _get_pref(db, current_user.id)
-    uploads = db.query(models.UserBackground).filter_by(
-        user_id=current_user.id
-    ).order_by(models.UserBackground.id.desc()).all()
-    return {
-        "background": pref.background if pref else FALLBACK_BACKGROUND,
-        "uploads": [_view(b) for b in uploads],
-    }
+    return _state(db, current_user)
 
 
 @router.post("/background/upload", response_model=schemas.UserBackgroundView,
@@ -205,7 +213,40 @@ def set_background(
 
     _set_preference(db, current_user.id, value)
     db.commit()
-    return get_background(db=db, current_user=current_user)
+    return _state(db, current_user)
+
+
+@router.put("/background/display", response_model=schemas.BackgroundState)
+def set_background_display(
+    payload: schemas.BackgroundDisplayUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """设置背景显示参数（auto/manual + 遮罩强度 + 模糊 + 适配方式）。"""
+    mode = (payload.mode or "auto").strip().lower()
+    if mode not in ("auto", "manual"):
+        raise HTTPException(status_code=400, detail="mode 只能为 auto 或 manual")
+    fit = (payload.fit or "cover").strip().lower()
+    if fit not in ("cover", "contain"):
+        raise HTTPException(status_code=400, detail="fit 只能为 cover 或 contain")
+
+    dim = payload.dim
+    if dim is not None and not (0 <= dim <= 100):
+        raise HTTPException(status_code=400, detail="dim 需在 0..100")
+    blur = payload.blur
+    if blur is not None and not (0 <= blur <= 20):
+        raise HTTPException(status_code=400, detail="blur 需在 0..20")
+
+    pref = _get_pref(db, current_user.id)
+    if pref is None:
+        pref = _set_preference(db, current_user.id, FALLBACK_BACKGROUND)
+    pref.bg_mode = mode
+    pref.bg_dim = dim
+    pref.bg_blur = blur
+    pref.bg_fit = fit
+    pref.updated_at = _now()
+    db.commit()
+    return _state(db, current_user)
 
 
 @router.delete("/background/images/{image_id}", response_model=schemas.BackgroundState)
@@ -232,7 +273,7 @@ def delete_background(
     except OSError:
         pass
     logger.info(f"用户 {current_user.username} 删除背景图 id={image_id}")
-    return get_background(db=db, current_user=current_user)
+    return _state(db, current_user)
 
 
 @router.get("/background/images/{image_id}")

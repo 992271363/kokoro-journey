@@ -225,7 +225,7 @@ class ServerCloudSession(Base):
 # 用户偏好 / 背景资源
 # ============================================================
 
-# 用户偏好（每个用户一行；目前仅背景选择）
+# 用户偏好（每个用户一行；目前仅背景选择与显示参数）
 class UserPreference(Base):
     __tablename__ = 'user_preferences'
 
@@ -233,6 +233,13 @@ class UserPreference(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False, unique=True, index=True)
     # 背景选择：'default:BG1'..'default:BG5' 或 'custom:<UserBackground.id>'
     background = Column(String(64), nullable=False, default='default:BG1')
+
+    # 背景显示参数：mode=auto 时前端按图片亮度自动算遮罩/模糊，忽略 dim/blur
+    bg_mode = Column(String(16), nullable=False, default='auto')   # auto | manual
+    bg_dim = Column(Integer, nullable=True)                        # 0..100（遮罩强度，manual 生效）
+    bg_blur = Column(Integer, nullable=True)                       # 0..20 px（manual 生效）
+    bg_fit = Column(String(16), nullable=False, default='cover')   # cover | contain
+
     updated_at = Column(DateTime, nullable=True)
 
 

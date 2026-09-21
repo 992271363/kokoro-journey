@@ -14,7 +14,18 @@ export interface UserBackground {
 
 export interface BackgroundState {
   background: string
+  mode: string
+  dim?: number | null
+  blur?: number | null
+  fit: string
   uploads: UserBackground[]
+}
+
+export interface BackgroundDisplay {
+  mode: 'auto' | 'manual'
+  dim?: number | null
+  blur?: number | null
+  fit: 'cover' | 'contain'
 }
 
 export function getBackground() {
@@ -23,6 +34,13 @@ export function getBackground() {
 
 export function setBackground(background: string) {
   return request.put('/settings/background', { background }) as unknown as Promise<BackgroundState>
+}
+
+export function setBackgroundDisplay(display: BackgroundDisplay) {
+  return request.put(
+    '/settings/background/display',
+    display,
+  ) as unknown as Promise<BackgroundState>
 }
 
 export function uploadBackground(file: Blob, filename: string) {

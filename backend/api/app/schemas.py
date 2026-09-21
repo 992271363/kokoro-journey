@@ -171,8 +171,19 @@ class UserBackgroundView(CamelAliasModel):
 
 class BackgroundState(CamelAliasModel):
     background: str
+    mode: str = "auto"
+    dim: Optional[int] = None
+    blur: Optional[int] = None
+    fit: str = "cover"
     uploads: List[UserBackgroundView] = []
 
 
 class BackgroundUpdate(CamelAliasModel):
     background: str
+
+
+class BackgroundDisplayUpdate(CamelAliasModel):
+    mode: str = "auto"
+    dim: Optional[int] = None
+    blur: Optional[int] = None
+    fit: str = "cover"

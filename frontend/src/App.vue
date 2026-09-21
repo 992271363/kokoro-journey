@@ -20,15 +20,24 @@ const syncBackground = () => {
 onMounted(syncBackground)
 watch(() => authStore.isAuthenticated, syncBackground)
 </script>
+
 <template>
+  <div class="app-bg" aria-hidden="true"></div>
+  <div class="app-scrim" aria-hidden="true"></div>
   <TopBar v-if="!route.meta.hideTopBar" />
-  <main class="main-content">
+  <main class="app-main" :class="{ 'with-topbar': !route.meta.hideTopBar }">
     <RouterView />
   </main>
 </template>
+
 <style>
-.main-content {
-  padding-top: 64px;
+.app-main {
+  position: relative;
+  z-index: 2;
   width: 100%;
+  min-height: 100vh;
+}
+.app-main.with-topbar {
+  padding-top: var(--topbar-h);
 }
 </style>

@@ -23,6 +23,7 @@ import {
   fetchBackgroundImage,
   getBackground,
   setBackground,
+  setBackgroundDisplay,
   uploadBackground,
 } from '@/api/settings'
 import { DEFAULT_BACKGROUNDS, defaultBackgroundUrl, FALLBACK_BACKGROUND } from '@/assets/backgrounds'
@@ -48,6 +49,30 @@ describe('background settings api', () => {
     expect(request.get).toHaveBeenCalledWith('/settings/background')
     expect(request.put).toHaveBeenCalledWith('/settings/background', { background: 'default:BG2' })
     expect(request.delete).toHaveBeenCalledWith('/settings/background/images/5')
+  })
+
+  it('设置显示参数', async () => {
+    ;(request.put as ReturnType<typeof vi.fn>).mockResolvedValue({
+      background: 'default:BG1',
+      mode: 'manual',
+      dim: 70,
+      blur: 10,
+      fit: 'contain',
+      uploads: [],
+    })
+    const state = await setBackgroundDisplay({
+      mode: 'manual',
+      dim: 70,
+      blur: 10,
+      fit: 'contain',
+    })
+    expect(request.put).toHaveBeenCalledWith('/settings/background/display', {
+      mode: 'manual',
+      dim: 70,
+      blur: 10,
+      fit: 'contain',
+    })
+    expect(state.mode).toBe('manual')
   })
 
   it('上传以 multipart 发送文件', async () => {

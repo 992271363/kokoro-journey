@@ -1,15 +1,16 @@
 <template>
-  <div class="dashboard">
-    <div class="dashboard-header">
-      <div class="header-text">
+  <div class="page">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Dashboard</p>
+        <h1 class="page-title">活动仪表盘</h1>
         <p class="greeting">欢迎回来，{{ username }}</p>
-        <h1>活动仪表盘</h1>
       </div>
-      <div class="header-time">{{ currentTimeStr }}</div>
-    </div>
+      <div class="clock">{{ currentTimeStr }}</div>
+    </header>
 
     <div class="stats-grid">
-      <div class="stat-card" v-for="card in statCards" :key="card.key">
+      <div class="stat-card card" v-for="card in statCards" :key="card.key">
         <div class="stat-icon" :style="{ background: card.iconBg }">
           <i :class="card.icon" :style="{ color: card.iconColor }"></i>
         </div>
@@ -24,11 +25,11 @@
     <div class="dashboard-body">
       <section class="panel apps-panel">
         <div class="panel-header">
-          <h2>应用使用总览</h2>
+          <h2 class="panel-title">应用使用总览</h2>
           <span class="panel-badge">按专注时长排序</span>
         </div>
 
-        <div class="app-list">
+        <div class="app-list scroll-y">
           <div v-if="topApps.length === 0" class="empty-state">
             <i class="fas fa-inbox"></i>
             <p>暂无应用数据</p>
@@ -70,9 +71,9 @@
 
       <section class="panel activity-panel">
         <div class="panel-header">
-          <h2>最近会话</h2>
+          <h2 class="panel-title">最近会话</h2>
         </div>
-        <ul class="activity-list">
+        <ul class="activity-list scroll-y">
           <li v-if="recentActivities.length === 0" class="empty-state">
             <i class="fas fa-inbox"></i>
             <p>暂无记录</p>
@@ -262,67 +263,39 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap');
-
-.dashboard {
-  font-family: 'DM Sans', sans-serif;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 2rem 2.5rem 3rem;
-  color: #e2e8f0;
-}
-
-/* ── Header ── */
-.dashboard-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  margin-bottom: 2.5rem;
-}
 .greeting {
-  margin: 0 0 0.25rem;
+  margin: var(--sp-1) 0 0;
   font-size: 0.9rem;
-  color: #64748b;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: var(--text-muted);
 }
-.dashboard-header h1 {
-  margin: 0;
-  font-size: 2rem;
-  font-weight: 600;
-  color: #f1f5f9;
-  letter-spacing: -0.02em;
-}
-.header-time {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 1.1rem;
-  color: #475569;
+.clock {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  color: var(--text-faint);
   padding-bottom: 0.25rem;
+  white-space: nowrap;
 }
 
-/* ── Stat Cards ── */
+/* ── 统计卡 ── */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  margin-bottom: 2rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
 }
 .stat-card {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 1rem;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 14px;
-  padding: 1.25rem 1.25rem 1.25rem 1rem;
+  gap: var(--sp-3);
+  padding: 1.1rem 1.1rem 1.1rem 0.9rem;
   overflow: hidden;
   transition:
     border-color 0.2s,
     transform 0.2s;
 }
 .stat-card:hover {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--border-strong);
   transform: translateY(-2px);
 }
 .stat-accent {
@@ -332,12 +305,12 @@ onUnmounted(() => {
   bottom: 20%;
   width: 3px;
   border-radius: 0 2px 2px 0;
-  opacity: 0.8;
+  opacity: 0.85;
 }
 .stat-icon {
   width: 42px;
   height: 42px;
-  border-radius: 10px;
+  border-radius: var(--r-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -352,88 +325,45 @@ onUnmounted(() => {
 }
 .stat-label {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-faint);
   white-space: nowrap;
-  letter-spacing: 0.02em;
 }
 .stat-value {
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ── Body Layout ── */
+/* ── 主体两栏 ── */
 .dashboard-body {
   display: grid;
-  grid-template-columns: 3fr 1.2fr;
-  gap: 1.25rem;
-  align-items: flex-start;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr);
+  gap: var(--sp-4);
+  align-items: start;
 }
 
-/* ── Panels ── */
-.panel {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 16px;
-  overflow: hidden;
-}
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 1.5rem 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.panel-header h2 {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #cbd5e1;
-  letter-spacing: 0.01em;
-}
-.panel-badge {
-  font-size: 0.7rem;
-  color: #475569;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 0.2rem 0.65rem;
-}
-
-/* ── App List ── */
+/* ── 应用总览 ── */
 .app-list {
-  padding: 0.5rem 0;
+  padding: 0.4rem 0;
   max-height: 480px;
-  overflow-y: auto;
 }
-.app-list::-webkit-scrollbar {
-  width: 4px;
-}
-.app-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.app-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-}
-
 .app-row {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.85rem 1.5rem;
+  gap: var(--sp-3);
+  padding: 0.8rem 1.4rem;
   transition: background 0.15s;
 }
 .app-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-hover);
 }
 .app-rank {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
-  color: #334155;
+  color: var(--text-faint);
   width: 20px;
   flex-shrink: 0;
 }
@@ -448,30 +378,30 @@ onUnmounted(() => {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: var(--sp-2);
 }
 .app-name {
   font-size: 0.9rem;
   font-weight: 500;
-  color: #e2e8f0;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .app-last-seen {
   font-size: 0.72rem;
-  color: #475569;
+  color: var(--text-faint);
   flex-shrink: 0;
 }
 .app-bar-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--sp-3);
 }
 .bar-track {
   flex: 1;
   height: 4px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -488,7 +418,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .dur-focus {
-  color: #94a3b8;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 0.3rem;
@@ -498,47 +428,35 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 .dur-sep {
-  color: #334155;
+  color: var(--text-faint);
 }
 .dur-total {
-  color: #475569;
+  color: var(--text-faint);
 }
 
-/* ── Activity Panel ── */
+/* ── 最近会话 ── */
 .activity-list {
   list-style: none;
   margin: 0;
-  padding: 0.5rem 0;
+  padding: 0.4rem 0;
   max-height: 480px;
-  overflow-y: auto;
 }
-.activity-list::-webkit-scrollbar {
-  width: 4px;
-}
-.activity-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.activity-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-}
-
 .activity-item {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem 1.5rem;
+  gap: var(--sp-3);
+  padding: 0.7rem 1.4rem;
   transition: background 0.15s;
 }
 .activity-item:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-hover);
 }
 .activity-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #1e3a5f;
-  border: 1.5px solid #3b82f6;
+  background: rgba(79, 156, 249, 0.25);
+  border: 1.5px solid var(--accent);
   margin-top: 5px;
   flex-shrink: 0;
 }
@@ -551,52 +469,33 @@ onUnmounted(() => {
 .activity-name {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #cbd5e1;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .activity-meta {
   font-size: 0.72rem;
-  color: #475569;
-  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
 }
 
-/* ── Empty State ── */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 3rem 1rem;
-  color: #334155;
-  font-size: 0.85rem;
-}
-.empty-state i {
-  font-size: 1.5rem;
-}
-
-/* ── Responsive ── */
 @media (max-width: 1024px) {
   .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .dashboard-body {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 640px) {
-  .dashboard {
-    padding: 1rem;
-  }
   .stats-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
+    grid-template-columns: minmax(0, 1fr);
   }
-  .dashboard-header {
+  .page-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.5rem;
+    gap: var(--sp-2);
   }
 }
 </style>
