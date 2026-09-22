@@ -38,7 +38,14 @@
       <!-- 中：主导航 -->
       <nav class="main-nav">
         <router-link to="/" class="nav-link" :class="{ active: route.path === '/' }">
-          <i class="fas fa-chart-line"></i><span>仪表盘</span>
+          <i class="fas fa-chart-line"></i><span>概览</span>
+        </router-link>
+        <router-link
+          to="/analysis"
+          class="nav-link"
+          :class="{ active: route.path.startsWith('/analysis') }"
+        >
+          <i class="fas fa-magnifying-glass-chart"></i><span>分析</span>
         </router-link>
         <router-link
           to="/saves"

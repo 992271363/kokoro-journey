@@ -5,7 +5,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from . import models, schemas, auth, database
-from .routers import dashboard, saves, settings
+from .routers import dashboard, saves, settings, analytics
 from .logger import logger
 
 
@@ -54,6 +54,13 @@ _INDEX_MIGRATIONS = (
     ("server_save_games", "uix_server_save_game_user_identifier",
      "CREATE UNIQUE INDEX uix_server_save_game_user_identifier "
      "ON server_save_games (user_id, identifier)"),
+    # 活动分析：closes 分桶 / activities 区间查询
+    ("server_process_sessions", "ix_server_session_summary_end",
+     "CREATE INDEX ix_server_session_summary_end "
+     "ON server_process_sessions (summary_id, session_end_time)"),
+    ("server_focus_activities", "ix_server_focus_activity_session_start",
+     "CREATE INDEX ix_server_focus_activity_session_start "
+     "ON server_focus_activities (session_id, focus_start_time)"),
 )
 
 # 用名称回填 identifier（SUBSTR 在 MySQL/MariaDB 与 SQLite 均可用）
@@ -133,6 +140,7 @@ app = FastAPI(title="Kokoro Journey API")
 app.include_router(dashboard.router)
 app.include_router(saves.router)
 app.include_router(settings.router)
+app.include_router(analytics.router)
 logger.info("后端 API 已启动。")
 
 #智能同步接口(采用手动事务控制)

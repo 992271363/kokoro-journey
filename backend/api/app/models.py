@@ -64,6 +64,8 @@ class ServerProcessSession(Base):
     __table_args__ = (
         UniqueConstraint('summary_id', 'session_start_time',
                          name='uix_server_session_summary_start'),
+        # 分析查询：closes 按结束时间分桶 / 过滤（start 已由上面的唯一约束覆盖）
+        Index('ix_server_session_summary_end', 'summary_id', 'session_end_time'),
     )
     id = Column(Integer, primary_key=True)
 
@@ -83,6 +85,10 @@ class ServerProcessSession(Base):
 #焦点活动
 class ServerFocusActivity(Base):
     __tablename__ = 'server_focus_activities'
+    __table_args__ = (
+        # 分析查询：按会话 + 开始时间取区间（hourly / heatmap / peak）
+        Index('ix_server_focus_activity_session_start', 'session_id', 'focus_start_time'),
+    )
     id = Column(Integer, primary_key=True)
 
     # 外键：关联到会话

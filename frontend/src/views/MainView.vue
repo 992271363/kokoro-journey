@@ -3,292 +3,415 @@
     <header class="page-header">
       <div>
         <p class="eyebrow">Dashboard</p>
-        <h1 class="page-title">活动仪表盘</h1>
-        <p class="greeting">欢迎回来，{{ username }}</p>
+        <h1 class="page-title">概览</h1>
+        <p class="sub">欢迎回来，{{ username }} · {{ rangeLabel }}</p>
       </div>
-      <div class="clock">{{ currentTimeStr }}</div>
+      <TimeRangePicker
+        :preset="preset"
+        :from="from"
+        :to="to"
+        @preset="setPreset"
+        @custom="setCustom"
+      />
     </header>
 
+    <p v-if="error" class="flash err"><i class="fas fa-triangle-exclamation"></i> {{ error }}</p>
+
+    <!-- 总体卡片 -->
     <div class="stats-grid">
-      <div class="stat-card card" v-for="card in statCards" :key="card.key">
-        <div class="stat-icon" :style="{ background: card.iconBg }">
-          <i :class="card.icon" :style="{ color: card.iconColor }"></i>
-        </div>
+      <div v-for="card in cards" :key="card.key" class="stat-card card">
         <div class="stat-body">
           <span class="stat-label">{{ card.label }}</span>
           <span class="stat-value">{{ card.value }}</span>
         </div>
-        <div class="stat-accent" :style="{ background: card.accentColor }"></div>
+        <span class="stat-delta" :class="deltaClass(card.delta)">
+          <template v-if="card.delta === null">—</template>
+          <template v-else>
+            <i class="fas" :class="card.delta >= 0 ? 'fa-arrow-up' : 'fa-arrow-down'"></i>
+            {{ Math.abs(card.delta).toFixed(1) }}%
+          </template>
+        </span>
+        <div class="stat-accent" :style="{ background: card.color }"></div>
       </div>
     </div>
 
-    <div class="dashboard-body">
+    <!-- 趋势 -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">专注 / 运行趋势</h2>
+        <span class="panel-badge">{{ rangeLabel }}</span>
+      </div>
+      <div class="chart-box">
+        <div v-if="loadingTrend" class="hint pad">加载中…</div>
+        <ActivityTrendChart v-else :points="trend" />
+      </div>
+    </section>
+
+    <div class="lower-grid">
+      <!-- 应用排行 -->
       <section class="panel apps-panel">
         <div class="panel-header">
-          <h2 class="panel-title">应用使用总览</h2>
-          <span class="panel-badge">按专注时长排序</span>
+          <h2 class="panel-title">应用排行</h2>
+          <input
+            v-model="appQuery"
+            class="input search"
+            type="search"
+            placeholder="搜索应用…"
+          />
         </div>
-
-        <div class="app-list scroll-y">
-          <div v-if="topApps.length === 0" class="empty-state">
-            <i class="fas fa-inbox"></i>
-            <p>暂无应用数据</p>
-          </div>
-          <div v-for="(app, index) in topApps" :key="app.id" class="app-row">
-            <div class="app-rank">{{ String(index + 1).padStart(2, '0') }}</div>
-            <div class="app-main">
-              <div class="app-top-row">
-                <span class="app-name">{{ formatAppName(app.executableName) }}</span>
-                <span class="app-last-seen">{{
-                  formatRelativeTime(app.summary.lastSeenEndAt)
-                }}</span>
-              </div>
-              <div class="app-bar-row">
-                <div class="bar-track">
-                  <div
-                    class="bar-fill"
-                    :style="{
-                      width: getFocusRatio(app.summary) + '%',
-                      background: getBarColor(index),
-                    }"
-                  ></div>
-                </div>
-                <div class="app-durations">
-                  <span class="dur-focus">
-                    <i class="fas fa-crosshairs"></i>
-                    {{ formatDuration(app.summary.totalFocusTimeSeconds) }}
-                  </span>
-                  <span class="dur-sep">/</span>
-                  <span class="dur-total">{{
-                    formatDuration(app.summary.totalLifetimeSeconds)
-                  }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="sortable" @click="sortBy('name')">
+                  应用 <i v-if="sort === 'name'" class="fas" :class="sortIcon"></i>
+                </th>
+                <th class="num sortable" @click="sortBy('focus')">
+                  专注 <i v-if="sort === 'focus'" class="fas" :class="sortIcon"></i>
+                </th>
+                <th class="num sortable" @click="sortBy('lifetime')">
+                  运行 <i v-if="sort === 'lifetime'" class="fas" :class="sortIcon"></i>
+                </th>
+                <th class="num">占比</th>
+                <th class="num sortable" @click="sortBy('active_days')">
+                  活跃 <i v-if="sort === 'active_days'" class="fas" :class="sortIcon"></i>
+                </th>
+                <th class="num">平均单次</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="loadingApps">
+                <td colspan="6" class="hint pad">加载中…</td>
+              </tr>
+              <tr v-else-if="apps.length === 0">
+                <td colspan="6" class="hint pad">该范围暂无数据</td>
+              </tr>
+              <tr
+                v-for="app in apps"
+                v-else
+                :key="app.appId"
+                class="clickable"
+                @click="openApp(app.appId)"
+              >
+                <td class="cell-name" :title="app.executableName">{{ appName(app.executableName) }}</td>
+                <td class="num">{{ formatDuration(app.focusSeconds) }}</td>
+                <td class="num">{{ formatDuration(app.lifetimeSeconds) }}</td>
+                <td class="num">{{ formatPercent(app.focusRatio) }}</td>
+                <td class="num">{{ app.activeDays }} 天</td>
+                <td class="num">{{ formatDuration(app.avgSessionFocusSeconds) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pager">
+          <span class="pager-info">共 {{ appsTotal }} 个应用</span>
+          <button class="btn btn-icon" :disabled="appsPage <= 1" @click="goPage(appsPage - 1)">
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <span class="pager-page">{{ appsPage }} / {{ appsPageCount }}</span>
+          <button
+            class="btn btn-icon"
+            :disabled="appsPage >= appsPageCount"
+            @click="goPage(appsPage + 1)"
+          >
+            <i class="fas fa-chevron-right"></i>
+          </button>
         </div>
       </section>
 
-      <section class="panel activity-panel">
+      <!-- 最近活动 -->
+      <section class="panel recent-panel">
         <div class="panel-header">
-          <h2 class="panel-title">最近会话</h2>
+          <h2 class="panel-title">最近活动</h2>
+          <span class="panel-badge">{{ sessions.length }} 条</span>
         </div>
-        <ul class="activity-list scroll-y">
-          <li v-if="recentActivities.length === 0" class="empty-state">
-            <i class="fas fa-inbox"></i>
-            <p>暂无记录</p>
-          </li>
-          <li v-for="activity in recentActivities" :key="activity.id" class="activity-item">
-            <div class="activity-dot"></div>
-            <div class="activity-content">
-              <span class="activity-name">{{ formatAppName(activity.processName) }}</span>
-              <span class="activity-meta">
-                {{ formatDuration(activity.totalLifetimeSeconds) }} &nbsp;·&nbsp;
-                {{ formatTime(activity.sessionStartTime) }} –
-                {{ formatTime(activity.sessionEndTime) }}
-              </span>
+        <ul class="session-list scroll-y">
+          <li v-if="loadingSessions" class="hint pad">加载中…</li>
+          <li v-else-if="sessions.length === 0" class="hint pad">该范围暂无会话</li>
+          <li v-for="s in sessions" v-else :key="s.id" class="session-item">
+            <div class="session-row" @click="toggleSession(s.id)">
+              <div class="session-main">
+                <span class="session-name">{{ appName(s.executableName) }}</span>
+                <span class="session-meta">
+                  {{ formatDateTime(s.start) }}
+                  <template v-if="s.end"> – {{ formatTime(s.end) }}</template>
+                </span>
+              </div>
+              <div class="session-durations">
+                <span class="dur">运行 {{ formatDurationCompact(s.lifetimeSeconds) }}</span>
+                <span class="dur focus">专注 {{ formatDurationCompact(s.focusSeconds) }}</span>
+                <i
+                  class="fas fa-chevron-down toggle"
+                  :class="{ open: expandedId === s.id }"
+                ></i>
+              </div>
+            </div>
+            <div v-if="expandedId === s.id" class="activity-list">
+              <div v-if="activitiesLoading" class="hint">加载中…</div>
+              <div v-else-if="activities.length === 0" class="hint">无窗口活动记录</div>
+              <ul v-else>
+                <li v-for="(a, i) in activities" :key="i" class="activity-item">
+                  <span class="activity-time">{{ formatTime(a.start) }}</span>
+                  <span class="activity-title" :title="a.windowTitle || '(无标题)'">
+                    {{ a.windowTitle || '(无标题)' }}
+                  </span>
+                  <span class="activity-dur">{{ formatDurationCompact(a.durationSeconds) }}</span>
+                </li>
+              </ul>
             </div>
           </li>
         </ul>
       </section>
     </div>
+
+    <AppDetailDrawer
+      :app-id="drawerAppId"
+      :from="activityParams.from"
+      :to="activityParams.to"
+      :tz="tz"
+      :truncated="activityTruncated"
+      @close="drawerAppId = null"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import request from '@/utils/request'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useRouter } from 'vue-router'
+import { useTimeRange } from '@/composables/useTimeRange'
+import {
+  getApps,
+  getSessionActivities,
+  getSessions,
+  getSummary,
+  getTimeseries,
+  localTzMinutes,
+  type ActivityItem,
+  type AnalyticsSummary,
+  type AppRankItem,
+  type SessionItem,
+  type TimeseriesPoint,
+} from '@/api/analytics'
+import {
+  appName,
+  formatDateTime,
+  formatDuration,
+  formatDurationCompact,
+  formatPercent,
+  formatTime,
+} from '@/utils/format'
+import TimeRangePicker from '@/components/TimeRangePicker.vue'
+import ActivityTrendChart from '@/components/charts/ActivityTrendChart.vue'
+import AppDetailDrawer from '@/components/AppDetailDrawer.vue'
 
 const authStore = useAuthStore()
-const router = useRouter()
+const username = authStore.username ?? 'User'
+const tz = localTzMinutes()
 
-const formatAppName = (name: string): string => name.replace(/\.exe$/i, '')
+const { preset, from, to, params, activityParams, activityTruncated, setPreset, setCustom } =
+  useTimeRange('last7')
 
-interface DashboardStats {
-  todayFocusSeconds: number
-  totalAppsTracked: number
-  mostUsedAppToday: string | null
-  thisWeekLifetimeSeconds: number
-}
+const summary = ref<AnalyticsSummary | null>(null)
+const trend = ref<TimeseriesPoint[]>([])
+const apps = ref<AppRankItem[]>([])
+const appsTotal = ref(0)
+const sessions = ref<SessionItem[]>([])
 
-interface AppSummary {
-  lastSeenEndAt: string
-  totalLifetimeSeconds: number
-  totalFocusTimeSeconds: number
-}
+const loadingTrend = ref(false)
+const loadingApps = ref(false)
+const loadingSessions = ref(false)
+const error = ref('')
 
-interface WatchedApplication {
-  id: number
-  executableName: string
-  summary: AppSummary
-}
+const appQuery = ref('')
+const sort = ref<'focus' | 'lifetime' | 'active_days' | 'name'>('focus')
+const order = ref<'asc' | 'desc'>('desc')
+const appsPage = ref(1)
+const pageSize = 8
+const appsPageCount = computed(() => Math.max(1, Math.ceil(appsTotal.value / pageSize)))
 
-interface ProcessSession {
-  id: number
-  processName: string
-  sessionStartTime: string
-  sessionEndTime: string
-  totalLifetimeSeconds: number
-}
+const expandedId = ref<number | null>(null)
+const activities = ref<ActivityItem[]>([])
+const activitiesLoading = ref(false)
+const drawerAppId = ref<number | null>(null)
 
-const username = ref<string>(authStore.username ?? 'User')
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
-const stats = ref<DashboardStats>({
-  todayFocusSeconds: 0,
-  totalAppsTracked: 0,
-  mostUsedAppToday: null,
-  thisWeekLifetimeSeconds: 0,
+const rangeLabel = computed(() => `${from.value} ~ ${to.value}`)
+
+const deltaClass = (v: number | null) =>
+  v === null ? 'flat' : v >= 0 ? 'up' : 'down'
+
+const cards = computed(() => {
+  const cur = summary.value?.current
+  const chg = summary.value?.change
+  return [
+    {
+      key: 'focus',
+      label: '专注时长',
+      value: formatDuration(cur?.focusSeconds),
+      delta: chg?.focus ?? null,
+      color: '#4f9cf9',
+    },
+    {
+      key: 'lifetime',
+      label: '运行时长',
+      value: formatDuration(cur?.lifetimeSeconds),
+      delta: chg?.lifetime ?? null,
+      color: '#34c88a',
+    },
+    {
+      key: 'apps',
+      label: '活跃应用',
+      value: `${cur?.activeApps ?? 0} 个`,
+      delta: chg?.activeApps ?? null,
+      color: '#f5a623',
+    },
+    {
+      key: 'days',
+      label: '活跃天数',
+      value: `${cur?.activeDays ?? 0} 天`,
+      delta: chg?.activeDays ?? null,
+      color: '#a78bfa',
+    },
+  ]
 })
 
-const topApps = ref<WatchedApplication[]>([])
-const recentActivities = ref<ProcessSession[]>([])
+const sortIcon = computed(() => (order.value === 'desc' ? 'fa-arrow-down' : 'fa-arrow-up'))
 
-const now = ref(new Date())
-let clockTimer: ReturnType<typeof setInterval> | null = null
-let dataTimer: ReturnType<typeof setInterval> | null = null
-
-const currentTimeStr = computed(() => {
-  return now.value.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-})
-
-const formatDuration = (totalSeconds: number): string => {
-  if (!totalSeconds || totalSeconds < 60) return `${Math.round(totalSeconds || 0)}秒`
-  const days = Math.floor(totalSeconds / 86400)
-  const hours = Math.floor((totalSeconds % 86400) / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  if (days > 0) return `${days}天${hours > 0 ? ' ' + hours + '时' : ''}`
-  if (hours > 0) return `${hours}时${minutes > 0 ? ' ' + minutes + '分' : ''}`
-  return `${minutes}分钟`
+function reportError(e: unknown, fallback: string) {
+  const err = e as { response?: { data?: { detail?: string } }; message?: string }
+  error.value = err?.response?.data?.detail || err?.message || fallback
 }
 
-const formatTime = (iso: string): string => {
-  return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+async function loadSummary() {
+  error.value = ''
+  loadingTrend.value = true
+  try {
+    const [s, t] = await Promise.all([getSummary(params.value), getTimeseries(params.value)])
+    summary.value = s
+    trend.value = t.points
+  } catch (e) {
+    reportError(e, '无法加载概览数据')
+  } finally {
+    loadingTrend.value = false
+  }
 }
 
-const formatRelativeTime = (iso: string): string => {
-  const diff = (now.value.getTime() - new Date(iso).getTime()) / 1000
-  if (diff < 60) return '刚刚'
-  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
-  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`
-  return `${Math.floor(diff / 86400)} 天前`
+async function loadApps() {
+  loadingApps.value = true
+  try {
+    const res = await getApps({
+      ...params.value,
+      q: appQuery.value,
+      sort: sort.value,
+      order: order.value,
+      page: appsPage.value,
+      pageSize,
+    })
+    apps.value = res.items
+    appsTotal.value = res.total
+  } catch (e) {
+    reportError(e, '无法加载应用排行')
+  } finally {
+    loadingApps.value = false
+  }
 }
 
-const getFocusRatio = (summary: AppSummary): number => {
-  if (!summary.totalLifetimeSeconds) return 0
-  return Math.min(
-    100,
-    Math.round((summary.totalFocusTimeSeconds / summary.totalLifetimeSeconds) * 100),
-  )
+async function loadSessions() {
+  loadingSessions.value = true
+  try {
+    const res = await getSessions({ ...params.value, page: 1, pageSize: 10 })
+    sessions.value = res.items
+    expandedId.value = null
+  } catch (e) {
+    reportError(e, '无法加载最近活动')
+  } finally {
+    loadingSessions.value = false
+  }
 }
 
-const BAR_COLORS = ['#4f9cf9', '#34c88a', '#f5a623', '#e85d75', '#a78bfa', '#38bdf8']
-const getBarColor = (index: number): string => BAR_COLORS[index % BAR_COLORS.length]!
+function sortBy(key: typeof sort.value) {
+  if (sort.value === key) {
+    order.value = order.value === 'desc' ? 'asc' : 'desc'
+  } else {
+    sort.value = key
+    order.value = key === 'name' ? 'asc' : 'desc'
+  }
+  appsPage.value = 1
+  void loadApps()
+}
 
-const statCards = computed(() => [
-  {
-    key: 'focus',
-    label: '今日专注时长',
-    value: formatDuration(stats.value.todayFocusSeconds),
-    icon: 'fas fa-crosshairs',
-    iconBg: 'rgba(79,156,249,0.12)',
-    iconColor: '#4f9cf9',
-    accentColor: '#4f9cf9',
-  },
-  {
-    key: 'apps',
-    label: '追踪应用数',
-    value: `${stats.value.totalAppsTracked} 个`,
-    icon: 'fas fa-th-large',
-    iconBg: 'rgba(52,200,138,0.12)',
-    iconColor: '#34c88a',
-    accentColor: '#34c88a',
-  },
-  {
-    key: 'top',
-    label: '今日最常用',
-    value: stats.value.mostUsedAppToday ? formatAppName(stats.value.mostUsedAppToday) : '—',
-    icon: 'fas fa-crown',
-    iconBg: 'rgba(245,166,35,0.12)',
-    iconColor: '#f5a623',
-    accentColor: '#f5a623',
-  },
-  {
-    key: 'week',
-    label: '本周运行时长',
-    value: formatDuration(stats.value.thisWeekLifetimeSeconds),
-    icon: 'fas fa-calendar-week',
-    iconBg: 'rgba(167,139,250,0.12)',
-    iconColor: '#a78bfa',
-    accentColor: '#a78bfa',
-  },
-])
+function goPage(page: number) {
+  appsPage.value = page
+  void loadApps()
+}
 
-const fetchData = async () => {
-  if (!authStore.isAuthenticated) {
-    router.push('/login')
+function openApp(appId: number) {
+  drawerAppId.value = appId
+}
+
+async function toggleSession(id: number) {
+  if (expandedId.value === id) {
+    expandedId.value = null
     return
   }
+  expandedId.value = id
+  activities.value = []
+  activitiesLoading.value = true
   try {
-    const [statsRes, appsRes, activityRes] = await Promise.all([
-      request.get('/dashboard/stats'),
-      request.get('/dashboard/apps?sort_by=focus_time'),
-      request.get('/dashboard/recent-activity?limit=10'),
-    ])
-    stats.value = statsRes as unknown as DashboardStats
-    topApps.value = appsRes as unknown as WatchedApplication[]
-    recentActivities.value = activityRes as unknown as ProcessSession[]
-  } catch (error) {
-    console.error('无法加载仪表盘数据:', error)
+    activities.value = await getSessionActivities(id)
+  } catch (e) {
+    reportError(e, '无法加载窗口活动')
+  } finally {
+    activitiesLoading.value = false
   }
 }
 
-onMounted(() => {
-  fetchData()
-  clockTimer = setInterval(() => {
-    now.value = new Date()
-  }, 1000)
-  dataTimer = setInterval(fetchData, 60000)
+watch(
+  () => [from.value, to.value],
+  () => {
+    appsPage.value = 1
+    void loadSummary()
+    void loadApps()
+    void loadSessions()
+  },
+)
+
+watch(appQuery, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    appsPage.value = 1
+    void loadApps()
+  }, 300)
 })
 
-onUnmounted(() => {
-  if (clockTimer) clearInterval(clockTimer)
-  if (dataTimer) clearInterval(dataTimer)
+onMounted(() => {
+  void loadSummary()
+  void loadApps()
+  void loadSessions()
 })
 </script>
 
 <style scoped>
-.greeting {
+.sub {
   margin: var(--sp-1) 0 0;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: var(--text-muted);
 }
-.clock {
-  font-family: var(--font-mono);
-  font-size: 1.05rem;
-  color: var(--text-faint);
-  padding-bottom: 0.25rem;
-  white-space: nowrap;
-}
 
-/* ── 统计卡 ── */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-4);
-  margin-bottom: var(--sp-5);
+  margin-bottom: var(--sp-4);
 }
 .stat-card {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--sp-3);
-  padding: 1.1rem 1.1rem 1.1rem 0.9rem;
+  padding: 1.05rem 1.1rem 1.05rem 1rem;
   overflow: hidden;
   transition:
     border-color 0.2s,
@@ -306,16 +429,6 @@ onUnmounted(() => {
   width: 3px;
   border-radius: 0 2px 2px 0;
   opacity: 0.85;
-}
-.stat-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--r-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 1rem;
 }
 .stat-body {
   display: flex;
@@ -336,159 +449,200 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.stat-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.stat-delta.up {
+  color: var(--ok);
+}
+.stat-delta.down {
+  color: var(--danger);
+}
+.stat-delta.flat {
+  color: var(--text-faint);
+}
 
-/* ── 主体两栏 ── */
-.dashboard-body {
+.chart-box {
+  height: 280px;
+  padding: var(--sp-3);
+}
+.pad {
+  padding: var(--sp-5);
+}
+
+.lower-grid {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
   gap: var(--sp-4);
+  margin-top: var(--sp-4);
   align-items: start;
 }
 
-/* ── 应用总览 ── */
-.app-list {
-  padding: 0.4rem 0;
-  max-height: 480px;
+.search {
+  width: 180px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
 }
-.app-row {
+.table-wrap {
+  overflow-x: auto;
+}
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.sortable i {
+  margin-left: 0.25rem;
+  font-size: 0.65rem;
+  color: var(--accent);
+}
+.num {
+  text-align: right;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.cell-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.clickable {
+  cursor: pointer;
+}
+
+.pager {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.pager-info {
+  margin-right: auto;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+.pager-page {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.3rem 0;
+  max-height: 520px;
+}
+.session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--sp-3);
-  padding: 0.8rem 1.4rem;
+  padding: 0.7rem 1.2rem;
+  cursor: pointer;
   transition: background 0.15s;
 }
-.app-row:hover {
+.session-row:hover {
   background: var(--surface-hover);
 }
-.app-rank {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--text-faint);
-  width: 20px;
-  flex-shrink: 0;
-}
-.app-main {
-  flex: 1;
-  min-width: 0;
+.session-main {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.15rem;
+  min-width: 0;
 }
-.app-top-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--sp-2);
-}
-.app-name {
-  font-size: 0.9rem;
-  font-weight: 500;
+.session-name {
+  font-size: 0.86rem;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.app-last-seen {
-  font-size: 0.72rem;
+.session-meta {
+  font-size: 0.7rem;
   color: var(--text-faint);
-  flex-shrink: 0;
 }
-.app-bar-row {
+.session-durations {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-}
-.bar-track {
-  flex: 1;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.6s ease;
-}
-.app-durations {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.72rem;
+  gap: 0.5rem;
   flex-shrink: 0;
 }
-.dur-focus {
+.dur {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
   color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
 }
-.dur-focus i {
-  font-size: 0.6rem;
-  opacity: 0.6;
+.dur.focus {
+  color: #93c5fd;
 }
-.dur-sep {
+.toggle {
+  font-size: 0.65rem;
   color: var(--text-faint);
+  transition: transform 0.2s;
 }
-.dur-total {
-  color: var(--text-faint);
+.toggle.open {
+  transform: rotate(180deg);
 }
 
-/* ── 最近会话 ── */
 .activity-list {
+  padding: 0.2rem 1.2rem 0.7rem 2rem;
+}
+.activity-list ul {
   list-style: none;
   margin: 0;
-  padding: 0.4rem 0;
-  max-height: 480px;
+  padding: 0;
 }
 .activity-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--sp-3);
-  padding: 0.7rem 1.4rem;
-  transition: background 0.15s;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.76rem;
 }
-.activity-item:hover {
-  background: var(--surface-hover);
-}
-.activity-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(79, 156, 249, 0.25);
-  border: 1.5px solid var(--accent);
-  margin-top: 5px;
+.activity-time {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-faint);
   flex-shrink: 0;
 }
-.activity-content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+.activity-title {
+  flex: 1;
   min-width: 0;
-}
-.activity-name {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.activity-meta {
-  font-size: 0.72rem;
-  color: var(--text-faint);
+.activity-dur {
   font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
 }
 
-@media (max-width: 1024px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .dashboard-body {
+@media (max-width: 1100px) {
+  .lower-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 900px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
   .stats-grid {
     grid-template-columns: minmax(0, 1fr);
   }

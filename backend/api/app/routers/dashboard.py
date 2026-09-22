@@ -1,3 +1,8 @@
+"""【Deprecated】旧仪表盘接口（固定「今日/本周」，字段较粗）。
+
+保留以兼容既有消费者，不再扩展；新功能请使用 `/analytics/*`
+（通用 from/to 范围、服务端聚合、daily 趋势、应用排行、时段/热力分析）。
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
