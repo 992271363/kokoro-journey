@@ -78,6 +78,19 @@ def create_db_and_tables():
         except Exception:
             pass
 
+        # 应用：是否用 Locale Emulator 启动（存量库补列，默认否）
+        try:
+            conn.execute(text(
+                "ALTER TABLE watched_applications ADD COLUMN launch_with_le BOOLEAN"
+            ))
+            conn.execute(text(
+                "UPDATE watched_applications SET launch_with_le = 0 "
+                "WHERE launch_with_le IS NULL"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+
 
 def delete_database():
     if os.path.exists(db_path):

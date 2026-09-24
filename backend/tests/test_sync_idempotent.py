@@ -109,6 +109,27 @@ check("daily 重复提交仍 1 行",
 daily = session.query(models.ServerAppDailyUsage).first()
 check("daily 值正确", daily.lifetime_seconds == 100 and daily.focus_seconds == 50)
 
+# --- 测试 4：launch_with_le 字段随同步落库 ---
+dto_le = schemas.SyncProcessSession(
+    uid="uid-2",
+    executable_name="le-app.exe",
+    executable_path=r"c:\le-app.exe",
+    process_name="le-app.exe",
+    launch_with_le=True,
+    session_start_time=t0 + timedelta(hours=1),
+    session_end_time=t0 + timedelta(hours=1, minutes=1),
+    total_lifetime_seconds=60,
+    total_focus_seconds=30,
+    activities=[],
+)
+main.sync_sessions_from_client([dto_le], db=session, current_user=user)
+le_app = session.query(models.ServerWatchedApplication).filter_by(
+    executable_path=r"c:\le-app.exe").first()
+check("launch_with_le 落库为 True", le_app is not None and le_app.launch_with_le is True)
+plain_app = session.query(models.ServerWatchedApplication).filter_by(
+    executable_path=r"c:\app.exe").first()
+check("未勾选默认为 False", plain_app is not None and not plain_app.launch_with_le)
+
 session.close()
 try:
     os.remove(_db_path)

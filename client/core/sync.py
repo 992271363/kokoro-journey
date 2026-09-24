@@ -48,6 +48,7 @@ def get_and_prepare_sync_data():
                 "isWatched": app.is_watched,
                 "isProcessPathDifferent": app.is_process_path_different,
                 "isPathExist": app.is_path_exist,
+                "launchWithLe": bool(app.launch_with_le),
                 "processName": session.process_name,
                 "sessionStartTime": _to_utc_iso(session.session_start_time),
                 "sessionEndTime": _to_utc_iso(session.session_end_time),

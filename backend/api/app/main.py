@@ -37,6 +37,9 @@ _COLUMN_MIGRATIONS = (
      "ALTER TABLE server_save_versions ADD COLUMN slot INT NULL"),
     ("server_save_games", "identifier",
      "ALTER TABLE server_save_games ADD COLUMN identifier VARCHAR(64) NULL"),
+    ("server_watched_applications", "launch_with_le",
+     "ALTER TABLE server_watched_applications ADD COLUMN launch_with_le "
+     "BOOLEAN NOT NULL DEFAULT 0"),
     ("user_preferences", "bg_mode",
      "ALTER TABLE user_preferences ADD COLUMN bg_mode VARCHAR(16) NOT NULL DEFAULT 'auto'"),
     ("user_preferences", "bg_dim",
@@ -184,6 +187,7 @@ def sync_sessions_from_client(
             watched_app.is_watched = session_dto.is_watched
             watched_app.is_process_path_different = session_dto.is_process_path_different
             watched_app.is_path_exist = session_dto.is_path_exist
+            watched_app.launch_with_le = session_dto.launch_with_le
 
             #锁定并更新或创建AppUsageSummary
             summary = db.query(models.ServerAppUsageSummary).filter_by(

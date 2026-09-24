@@ -29,6 +29,8 @@ class ServerWatchedApplication(Base):
     is_process_path_different = Column(Boolean, nullable=False, default=False)
     is_path_exist = Column(Boolean, nullable=False, default=True)
     is_watched = Column(Boolean, nullable=False, default=True)
+    # 是否用 Locale Emulator 启动该应用
+    launch_with_le = Column(Boolean, nullable=False, default=False)
 
     # 外键：关联到用户
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)

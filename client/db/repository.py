@@ -32,6 +32,7 @@ class AppInfo:
     first_seen_at_ts: float = 0
     is_watched: bool = True
     is_path_exist: bool = True
+    launch_with_le: bool = False
     group_ids: list = field(default_factory=list)
     color_tags: list = field(default_factory=list)
 
@@ -71,6 +72,7 @@ class AppRepository:
                     first_seen_at_ts=app.summary.first_seen_at.timestamp() if app.summary and app.summary.first_seen_at else 0,
                     is_watched=app.is_watched,
                     is_path_exist=app.is_path_exist,
+                    launch_with_le=bool(app.launch_with_le),
                     group_ids=group_ids,
                     color_tags=color_tags,
                 ))
@@ -301,6 +303,24 @@ class AppRepository:
             if not app:
                 return False
             app.launch_path = launch_path
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False
+        finally:
+            db.close()
+
+    @staticmethod
+    def set_launch_with_le(exe_path: str, enabled: bool) -> bool:
+        """设置该应用是否用 Locale Emulator 启动（按 executable_path 定位）。"""
+        exe_path = normalize_exe_path(exe_path)
+        db = SessionLocal()
+        try:
+            app = db.query(WatchedApplication).filter_by(executable_path=exe_path).first()
+            if not app:
+                return False
+            app.launch_with_le = bool(enabled)
             db.commit()
             return True
         except Exception:

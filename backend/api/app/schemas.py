@@ -27,6 +27,7 @@ class SyncProcessSession(CamelAliasModel):
     is_watched: bool = True
     is_process_path_different: bool = False
     is_path_exist: bool = True
+    launch_with_le: bool = False
     process_name: str
     session_start_time: datetime
     session_end_time: datetime

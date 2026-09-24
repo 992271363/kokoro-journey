@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QLabel, QFrame, QDialogButtonBox,
     QVBoxLayout, QProgressBar, QPushButton, QHBoxLayout, QFileDialog,
-    QMessageBox, QLineEdit, QToolButton, QInputDialog
+    QMessageBox, QLineEdit, QToolButton, QInputDialog, QCheckBox
 )
 from PySide6.QtGui import QFont
 import os
@@ -126,6 +126,14 @@ class AppDetailDialog(QDialog):
         self._launch_row.addWidget(self.btn_edit_launch)
         layout.addRow("启动路径:", self._launch_row)
         self._refresh_launch_label()
+
+        self.check_launch_with_le = QCheckBox("使用 Locale Emulator 启动")
+        self.check_launch_with_le.setToolTip(
+            "勾选后，从主界面启动该应用时会通过 Locale Emulator 运行（区域配置在设置里指定）。")
+        self.check_launch_with_le.setChecked(bool(app_data.launch_with_le))
+        self.check_launch_with_le.toggled.connect(self._on_toggle_launch_with_le)
+        layout.addRow(self.check_launch_with_le)
+
         self._refresh_title()
 
         line_path = QFrame()
@@ -203,6 +211,10 @@ class AppDetailDialog(QDialog):
         path = self.app_data.launch_path or self.app_data.executable_path
         self.launch_label.setText(path)
         self.launch_label.setToolTip(path)
+
+    def _on_toggle_launch_with_le(self, checked: bool):
+        if not AppRepository.set_launch_with_le(self.app_data.executable_path, checked):
+            QMessageBox.warning(self, "提示", "保存失败，请重试。")
 
     def _on_edit_launch_path(self):
         current = self.app_data.launch_path or self.app_data.executable_path

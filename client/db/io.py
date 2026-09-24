@@ -118,6 +118,7 @@ def _build_export_json() -> dict:
                 "is_watched": app.is_watched,
                 "is_process_path_different": app.is_process_path_different,
                 "is_path_exist": app.is_path_exist,
+                "launch_with_le": bool(app.launch_with_le),
                 "total_focus_hours": round(summary.total_focus_time_seconds / 3600.0, 2) if summary else 0.0,
                 "total_lifetime_hours": round(summary.total_lifetime_seconds / 3600.0, 2) if summary else 0.0,
                 "first_seen": summary.first_seen_at.strftime("%Y-%m-%d %H:%M") if summary and summary.first_seen_at else None,
@@ -207,6 +208,7 @@ def _import_from_json(data: dict) -> None:
             watched_app.is_watched = app_data.get("is_watched", True)
             watched_app.is_process_path_different = app_data.get("is_process_path_different", False)
             watched_app.is_path_exist = app_data.get("is_path_exist", True)
+            watched_app.launch_with_le = bool(app_data.get("launch_with_le", False))
 
             summary = db.query(AppUsageSummary).filter_by(application_id=watched_app.id).first()
             if summary:
@@ -379,6 +381,7 @@ def merge_import_json(filepath: str, dry_run: bool = False,
             app.is_watched = app_data.get("is_watched", True)
             app.is_process_path_different = app_data.get("is_process_path_different", False)
             app.is_path_exist = app_data.get("is_path_exist", True)
+            app.launch_with_le = bool(app_data.get("launch_with_le", False))
 
             summary = db.query(AppUsageSummary).filter_by(
                 application_id=app.id

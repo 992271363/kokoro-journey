@@ -16,7 +16,6 @@ from ui.table_sort import SortableTableWidgetItem, SortController, NOT_RUNNING a
 _BASE_TOTAL_ROLE = Qt.UserRole + 100
 _IS_WATCHED_ROLE = Qt.UserRole + 200
 _IS_PATH_EXIST_ROLE = Qt.UserRole + 201
-_LAUNCH_PATH_ROLE = Qt.UserRole + 202
 
 _LIGHT_STATUS_COLORS = {
     "path_missing": "#ef4444",
@@ -126,7 +125,7 @@ class StyledHeaderView(QHeaderView):
 
 class AppTableManager(QObject):
     detail_requested = Signal(str)
-    launch_requested = Signal(str)
+    launch_requested = Signal(str, bool)  # (exe_path, 本次是否强制走 Locale Emulator)
     watch_toggled_requested = Signal(str, bool)
     hard_delete_requested = Signal(str, str)
     table_width_hint = Signal(int)
@@ -300,7 +299,6 @@ class AppTableManager(QObject):
 
             name_item = SortableTableWidgetItem(Path(app.exe_name).stem)
             name_item.setData(Qt.UserRole, app.exe_path)
-            name_item.setData(_LAUNCH_PATH_ROLE, app.launch_path or app.exe_path)
             name_item.setData(_IS_WATCHED_ROLE, app.is_watched)
             name_item.setData(_IS_PATH_EXIST_ROLE, app.is_path_exist)
             # 显示颜色标记
@@ -496,6 +494,7 @@ class AppTableManager(QObject):
         detail_action = menu.addAction("查看详细信息")
         rename_action = menu.addAction("重命名...")
         launch_action = menu.addAction("启动此应用")
+        le_launch_action = menu.addAction("本次用 Locale Emulator 启动")
         menu.addSeparator()
         toggle_watch_action = menu.addAction("停止监视" if is_watched else "恢复监视")
 
@@ -559,8 +558,9 @@ class AppTableManager(QObject):
             base_name = Path(exe_name).stem if Path(exe_name).suffix else exe_name
             self._start_inline_rename(row, exe_path, base_name)
         elif action == launch_action:
-            launch_path = name_item.data(_LAUNCH_PATH_ROLE) or exe_path
-            self.launch_requested.emit(launch_path)
+            self.launch_requested.emit(exe_path, False)
+        elif action == le_launch_action:
+            self.launch_requested.emit(exe_path, True)
         elif action == toggle_watch_action:
             self.watch_toggled_requested.emit(exe_path, not is_watched)
         elif action == manage_groups_action:

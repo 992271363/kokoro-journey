@@ -20,6 +20,7 @@ from ui.transfer import DataTransferDialog
 from ui.wizard import FirstRunWizard
 from util.state import update_state
 from util.format import format_seconds_to_text
+from util import le
 from core.http_client import validate_proxy_address
 
 
@@ -397,6 +398,45 @@ class SettingsDialog(QDialog):
         appearance.addRow(self.btn_zoom)
         box.addLayout(appearance)
 
+        box.addWidget(self._section_title("启动"))
+        le_form = QFormLayout()
+        le_form.setContentsMargins(0, 0, 0, 0)
+
+        le_dir_row = QHBoxLayout()
+        self.le_dir_edit = QLineEdit(str(Settings().get("leRootDir", "") or ""))
+        self.le_dir_edit.setPlaceholderText("例如 D:\\LE")
+        self.le_dir_edit.setReadOnly(True)
+        btn_le_browse = QPushButton("浏览...")
+        btn_le_browse.setFixedWidth(76)
+        btn_le_browse.clicked.connect(self._on_pick_le_dir)
+        btn_le_clear = QPushButton("清除")
+        btn_le_clear.setFixedWidth(60)
+        btn_le_clear.clicked.connect(self._on_clear_le_dir)
+        le_dir_row.addWidget(self.le_dir_edit, stretch=1)
+        le_dir_row.addWidget(btn_le_browse)
+        le_dir_row.addWidget(btn_le_clear)
+        le_form.addRow("Locale Emulator 文件夹:", le_dir_row)
+
+        self.le_profile_combo = AlwaysDownComboBox()
+        self.le_profile_combo.setToolTip(
+            "从 Locale Emulator 配置里读取的区域配置；勾选“用 Locale Emulator 启动”的游戏使用它。")
+        le_form.addRow("默认区域配置:", self.le_profile_combo)
+
+        self.btn_le_test = QPushButton("测试启动...")
+        self.btn_le_test.setToolTip("选择一个程序，用当前设置通过 Locale Emulator 启动，验证配置是否可用。")
+        self.btn_le_test.clicked.connect(self._on_test_le_launch)
+        le_form.addRow(self.btn_le_test)
+        box.addLayout(le_form)
+
+        le_hint = QLabel(
+            "在游戏详情页勾选“用 Locale Emulator 启动”，或在主界面右键选择“本次用 Locale Emulator 启动”。"
+            "标注“需管理员”的区域配置会在启动时请求系统授权。")
+        le_hint.setWordWrap(True)
+        le_hint.setProperty("role", "muted")
+        box.addWidget(le_hint)
+
+        self._reload_le_profiles()
+
         box.addStretch()
         self._add_page(page)
 
@@ -752,6 +792,9 @@ class SettingsDialog(QDialog):
         Settings().set("useSystemProxy", self.check_cloud_use_proxy.isChecked())
         Settings().set("proxyAddress", self.proxy_address_edit.text().strip())
 
+        Settings().set("leRootDir", self.le_dir_edit.text().strip())
+        Settings().set("leProfileGuid", self.le_profile_combo.currentData() or "")
+
         if autostart.is_available():
             if self.check_autostart.isChecked():
                 autostart.enable()
@@ -817,6 +860,8 @@ class SettingsDialog(QDialog):
         self.check_cloud_auto_upload.setChecked(False)
         self.check_cloud_use_proxy.setChecked(False)
         self.proxy_address_edit.setText("")
+        self.le_dir_edit.clear()
+        self._reload_le_profiles()
         self.radio_system.setChecked(True)
         self.radio_fmt_english.setChecked(True)
 
@@ -838,3 +883,59 @@ class SettingsDialog(QDialog):
     def _open_zoom_dialog(self):
         dialog = ZoomDialog(self, self.parent())
         dialog.exec()
+
+    # ---------------- Locale Emulator ----------------
+
+    def _on_pick_le_dir(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "选择 Locale Emulator 文件夹", self.le_dir_edit.text() or "")
+        if not path:
+            return
+        self.le_dir_edit.setText(os.path.normpath(path))
+        self._reload_le_profiles()
+
+    def _on_clear_le_dir(self):
+        self.le_dir_edit.clear()
+        self._reload_le_profiles()
+
+    def _reload_le_profiles(self):
+        """按当前 LE 文件夹重新读取区域配置，尽量保留已选中的那套。"""
+        previous = (
+            self.le_profile_combo.currentData()
+            if self.le_profile_combo.count() else Settings().get("leProfileGuid", "")
+        )
+        self.le_profile_combo.clear()
+
+        root = self.le_dir_edit.text().strip()
+        profiles = le.parse_profiles(le.find_leconfig(root)) if root else []
+        if not profiles:
+            self.le_profile_combo.addItem("（未找到区域配置）", "")
+            self.le_profile_combo.setEnabled(False)
+            return
+
+        self.le_profile_combo.setEnabled(True)
+        for item in profiles:
+            self.le_profile_combo.addItem(le.profile_label(item), item["guid"])
+
+        index = next((i for i, p in enumerate(profiles)
+                      if p["guid"] == le.normalize_guid(previous)), -1)
+        self.le_profile_combo.setCurrentIndex(index if index >= 0
+                                              else le.pick_default_index(profiles))
+
+    def _on_test_le_launch(self):
+        root = self.le_dir_edit.text().strip()
+        guid = self.le_profile_combo.currentData() or ""
+        ok, reason = le.check_ready(root, guid)
+        if not ok:
+            QMessageBox.warning(self, "无法测试", reason)
+            return
+        target, _ = QFileDialog.getOpenFileName(
+            self, "选择要测试启动的程序", "", "程序 (*.exe)")
+        if not target:
+            return
+        leproc = le.find_leproc(root)
+        ok, err = le.launch_with_le(leproc, guid, target)
+        if ok:
+            QMessageBox.information(self, "已启动", "已通过 Locale Emulator 启动该程序。")
+        else:
+            QMessageBox.warning(self, "启动失败", err)

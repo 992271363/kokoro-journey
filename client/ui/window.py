@@ -28,6 +28,7 @@ from ui.widgets import StyledSizeGrip, ChineseMenuLineEdit
 from ui.picker import PickOverlay, PickButton
 from ui.theme import get_system_theme
 from util.search import make_search_keywords, matches_search_keywords
+from util import le
 from version import VERSION
 
 def _spacer(w):
@@ -1279,15 +1280,42 @@ class Mywindow(QMainWindow):
             if dialog.needs_monitor_refresh:
                 self._refresh_monitor_list()
 
-    def _on_launch_requested(self, launch_path: str):
+    def _on_launch_requested(self, exe_path: str, force_le: bool = False):
+        """启动应用；按应用的“用 Locale Emulator 启动”设置决定是否走 LE。"""
+        app = AppRepository.get_app_by_path(exe_path)
+        target = (app.launch_path if app and app.launch_path else exe_path)
+        want_le = bool(force_le or (app is not None and app.launch_with_le))
+        if want_le and self._launch_with_le(target):
+            return
+        self._launch_normal(target)
+
+    @staticmethod
+    def _launch_normal(target: str):
+        old_cwd = os.getcwd()
         try:
-            old_cwd = os.getcwd()
-            if os.path.isfile(launch_path):
-                os.chdir(os.path.dirname(launch_path))
-            os.startfile(launch_path)
-            os.chdir(old_cwd)
+            if os.path.isfile(target):
+                os.chdir(os.path.dirname(target))
+            os.startfile(target)
         except Exception:
             pass
+        finally:
+            os.chdir(old_cwd)
+
+    def _launch_with_le(self, target: str) -> bool:
+        """尝试用 Locale Emulator 启动；未就绪/失败则提示一次并返回 False（交由普通启动）。"""
+        root = str(self._settings.get("leRootDir", "") or "")
+        guid = str(self._settings.get("leProfileGuid", "") or "")
+        ok, reason = le.check_ready(root, guid)
+        if ok:
+            ok2, err = le.launch_with_le(le.find_leproc(root), guid, target)
+            if ok2:
+                return True
+            reason = err or "启动失败"
+        if not getattr(self, "_le_warned", False):
+            self._le_warned = True
+            QMessageBox.information(
+                self, "Locale Emulator", f"{reason}，已按普通方式启动。")
+        return False
 
     def _on_watch_toggled(self, exe_path: str, watched: bool):
         ok = AppRepository.set_app_watched(exe_path, watched)
