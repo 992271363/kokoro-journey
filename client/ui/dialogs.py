@@ -213,7 +213,10 @@ class AppDetailDialog(QDialog):
         self.launch_label.setToolTip(path)
 
     def _on_toggle_launch_with_le(self, checked: bool):
-        if not AppRepository.set_launch_with_le(self.app_data.executable_path, checked):
+        if AppRepository.set_launch_with_le(self.app_data.executable_path, checked):
+            # 让主界面刷新，右键菜单据此决定是否还显示“本次用 Locale Emulator 启动”
+            self.needs_table_refresh = True
+        else:
             QMessageBox.warning(self, "提示", "保存失败，请重试。")
 
     def _on_edit_launch_path(self):

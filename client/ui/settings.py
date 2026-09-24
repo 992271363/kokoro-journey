@@ -437,6 +437,26 @@ class SettingsDialog(QDialog):
 
         self._reload_le_profiles()
 
+        box.addWidget(self._section_title("列表交互"))
+        interaction = QFormLayout()
+        interaction.setContentsMargins(0, 0, 0, 0)
+
+        self.radio_dbl_launch = QRadioButton("启动游戏")
+        self.radio_dbl_detail = QRadioButton("查看进程详情")
+        self.dbl_group = QButtonGroup(self)
+        self.dbl_group.addButton(self.radio_dbl_launch)
+        self.dbl_group.addButton(self.radio_dbl_detail)
+        if str(Settings().get("tableDoubleClickAction", "launch")).lower() == "detail":
+            self.radio_dbl_detail.setChecked(True)
+        else:
+            self.radio_dbl_launch.setChecked(True)
+
+        dbl_layout = QHBoxLayout()
+        dbl_layout.addWidget(self.radio_dbl_launch)
+        dbl_layout.addWidget(self.radio_dbl_detail)
+        interaction.addRow(QLabel("双击列表项:"), dbl_layout)
+        box.addLayout(interaction)
+
         box.addStretch()
         self._add_page(page)
 
@@ -794,6 +814,8 @@ class SettingsDialog(QDialog):
 
         Settings().set("leRootDir", self.le_dir_edit.text().strip())
         Settings().set("leProfileGuid", self.le_profile_combo.currentData() or "")
+        Settings().set("tableDoubleClickAction",
+                       "detail" if self.radio_dbl_detail.isChecked() else "launch")
 
         if autostart.is_available():
             if self.check_autostart.isChecked():
@@ -862,6 +884,7 @@ class SettingsDialog(QDialog):
         self.proxy_address_edit.setText("")
         self.le_dir_edit.clear()
         self._reload_le_profiles()
+        self.radio_dbl_launch.setChecked(True)
         self.radio_system.setChecked(True)
         self.radio_fmt_english.setChecked(True)
 

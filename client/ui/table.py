@@ -17,6 +17,11 @@ _BASE_TOTAL_ROLE = Qt.UserRole + 100
 _IS_WATCHED_ROLE = Qt.UserRole + 200
 _IS_PATH_EXIST_ROLE = Qt.UserRole + 201
 
+
+def should_offer_le_launch(launch_with_le: bool) -> bool:
+    """已勾选“用 Locale Emulator 启动”的应用，不再单独提供一次性 LE 入口。"""
+    return not bool(launch_with_le)
+
 _LIGHT_STATUS_COLORS = {
     "path_missing": "#ef4444",
     "not_watched": "#94a3b8",
@@ -472,10 +477,19 @@ class AppTableManager(QObject):
             break
 
     def _on_double_clicked(self, index):
+        if self._editing_rename:
+            return
         row = index.row()
         exe_path = self._get_exe_path_by_row(row)
-        if exe_path:
+        if not exe_path:
+            return
+        action = "launch"
+        if self._settings is not None:
+            action = str(self._settings.get("tableDoubleClickAction", "launch")).lower()
+        if action == "detail":
             self.detail_requested.emit(exe_path)
+        else:
+            self.launch_requested.emit(exe_path, False)
 
     def _on_context_menu(self, pos):
         row = self.table.currentRow()
@@ -494,7 +508,10 @@ class AppTableManager(QObject):
         detail_action = menu.addAction("查看详细信息")
         rename_action = menu.addAction("重命名...")
         launch_action = menu.addAction("启动此应用")
-        le_launch_action = menu.addAction("本次用 Locale Emulator 启动")
+        le_launch_action = None
+        app_info = self._app_for_path(exe_path)
+        if should_offer_le_launch(getattr(app_info, "launch_with_le", False)):
+            le_launch_action = menu.addAction("本次用 Locale Emulator 启动")
         menu.addSeparator()
         toggle_watch_action = menu.addAction("停止监视" if is_watched else "恢复监视")
 
@@ -559,7 +576,7 @@ class AppTableManager(QObject):
             self._start_inline_rename(row, exe_path, base_name)
         elif action == launch_action:
             self.launch_requested.emit(exe_path, False)
-        elif action == le_launch_action:
+        elif le_launch_action is not None and action == le_launch_action:
             self.launch_requested.emit(exe_path, True)
         elif action == toggle_watch_action:
             self.watch_toggled_requested.emit(exe_path, not is_watched)
@@ -717,6 +734,12 @@ class AppTableManager(QObject):
         if item:
             return item.data(Qt.UserRole)
         return ""
+
+    def _app_for_path(self, exe_path: str):
+        for app in self._last_apps:
+            if app.exe_path == exe_path:
+                return app
+        return None
 
     def cancel_sort_preserve(self):
         self._sort.unfreeze()
