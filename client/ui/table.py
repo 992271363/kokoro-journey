@@ -217,10 +217,13 @@ class AppTableManager(QObject):
         self._apply_zoom_style()
 
         if self._last_apps:
-            # 只重绘单元格，保留 _rows 中的实时会话状态；随后恢复排序与列宽
+            # 只重绘单元格，保留 _rows 中的实时会话状态；
+            # _render_rows 内部会关闭排序，渲染后按原状态恢复排序与指示器
+            was_sorting = self.table.isSortingEnabled()
             self._render_rows()
             self._adjust_name_column_width()
-            self._sort.resync()
+            if was_sorting:
+                self._sort.resync()
 
     def _apply_zoom_style(self):
         font = QFont(self._base_font)
@@ -497,6 +500,9 @@ class AppTableManager(QObject):
     # ---------- 行渲染（全部按稳定 ID） ----------
 
     def _render_rows(self):
+        # 必须在关闭排序时逐行填充：排序开启且有指示器时，插入/写单元格会被
+        # 立刻重排，导致行被移走、后续 setItem 落到错位行上（大量单元格丢失）。
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
         self._row_paths = []
         for app in self._last_apps:

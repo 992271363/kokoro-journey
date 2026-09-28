@@ -192,6 +192,35 @@ check("隐藏排序列后指示器已清除",
       _manager5.table.horizontalHeader().sortIndicatorSection() == -1)
 check("隐藏排序列后排序仍开启（可点表头）", _manager5.table.isSortingEnabled())
 
+# ---------------- 排序后缩放/重绘不丢单元格（回归） ----------------
+manager6 = new_manager()
+m_apps = [make_app("p1", focus=10, life=10),
+          make_app("p2", focus=50, life=50),
+          make_app("p3", focus=90, life=90)]
+manager6.refresh(m_apps)
+manager6.sort_by_id("total_focus", Qt.DescendingOrder)
+_zoom_base = sum(int(a.total_focus_seconds or 0) for a in m_apps)
+check("缩放前排序开启", manager6.table.isSortingEnabled())
+
+
+def _holes(manager) -> int:
+    return sum(1 for r in range(manager.table.rowCount())
+               if any(manager.table.item(r, c) is None
+                      for c in range(manager.table.columnCount())))
+
+
+manager6.apply_zoom(2.0)
+fc6 = manager6.col_index("total_focus")
+check("排序后缩放不丢单元格", _holes(manager6) == 0)
+check("排序后缩放行数不变", manager6.table.rowCount() == 3)
+check("排序后缩放合计不变",
+      sum(int(manager6.table.item(r, fc6).data(Qt.UserRole) or 0)
+          for r in range(manager6.table.rowCount())) == _zoom_base)
+check("排序后缩放排序仍开启", manager6.table.isSortingEnabled())
+
+manager6._render_rows()
+check("直接重绘不丢单元格", _holes(manager6) == 0)
+
 # ---------------- 名称回退 ----------------
 manager2 = new_manager()
 plain = make_app("plain", custom=None)
