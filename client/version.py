@@ -3,4 +3,4 @@
 try:
     from _build_info import BUILD_VERSION as VERSION
 except Exception:
-    VERSION = "v2026.9.20-1.2.1"
+    VERSION = "v2026.9.27-1.3.0"

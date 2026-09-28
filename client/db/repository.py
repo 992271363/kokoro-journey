@@ -1,4 +1,5 @@
 import datetime
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -33,8 +34,19 @@ class AppInfo:
     is_watched: bool = True
     is_path_exist: bool = True
     launch_with_le: bool = False
+    custom_name: Optional[str] = None
+    last_ended_at: str = ""
+    last_ended_at_ts: float = 0
     group_ids: list = field(default_factory=list)
     color_tags: list = field(default_factory=list)
+
+    @property
+    def display_name(self) -> str:
+        """列表显示名：有自定义名用自定义名，否则回退 EXE 名（去扩展名）。"""
+        custom = (self.custom_name or "").strip()
+        if custom:
+            return custom
+        return os.path.splitext(os.path.basename(self.exe_name or ""))[0]
 
 
 class AppRepository:
@@ -73,6 +85,11 @@ class AppRepository:
                     is_watched=app.is_watched,
                     is_path_exist=app.is_path_exist,
                     launch_with_le=bool(app.launch_with_le),
+                    custom_name=app.custom_name,
+                    last_ended_at=(app.summary.last_seen_end_at.strftime("%Y/%m/%d %H:%M")
+                                   if app.summary and app.summary.last_seen_end_at else never_text()),
+                    last_ended_at_ts=(app.summary.last_seen_end_at.timestamp()
+                                      if app.summary and app.summary.last_seen_end_at else 0),
                     group_ids=group_ids,
                     color_tags=color_tags,
                 ))
@@ -330,18 +347,19 @@ class AppRepository:
             db.close()
 
     @staticmethod
-    def rename_app(exe_path: str, new_name: str) -> bool:
-        """按 executable_path 定位，修改 executable_name（纯显示名称）。"""
+    def set_custom_name(exe_path: str, name: Optional[str]) -> bool:
+        """设置用户自定义名称；空字符串表示清除（回到回退 EXE 名称）。
+
+        注意：不修改 executable_name（它由追踪路径派生，用户不可改）。
+        """
         exe_path = normalize_exe_path(exe_path)
         db = SessionLocal()
         try:
             app = db.query(WatchedApplication).filter_by(executable_path=exe_path).first()
             if not app:
                 return False
-            new_name = new_name.strip()
-            if new_name == "" or new_name == app.executable_name.strip():
-                return True
-            app.executable_name = new_name
+            value = (name or "").strip()
+            app.custom_name = value or None
             db.commit()
             return True
         except Exception:
@@ -349,6 +367,11 @@ class AppRepository:
             return False
         finally:
             db.close()
+
+    @staticmethod
+    def rename_app(exe_path: str, new_name: str) -> bool:
+        """改名（写用户自定义名称）；等价于 set_custom_name。"""
+        return AppRepository.set_custom_name(exe_path, new_name)
 
     @staticmethod
     def set_app_watched(exe_path: str, watched: bool) -> bool:
@@ -430,6 +453,8 @@ class AppRepository:
             if db.query(WatchedApplication).filter_by(executable_path=new_path).first():
                 return False, "??"
             app.executable_path = new_path
+            # EXE 名随追踪路径刷新（用户自定义名称 custom_name 不受影响）
+            app.executable_name = os.path.splitext(os.path.basename(new_path))[0]
             db.commit()
             _refresh_failed_queues(old_path, new_path)
             return True, ""

@@ -112,7 +112,10 @@ def _build_export_json() -> dict:
 
             app_list.append({
                 "uid": app.uid,
-                "name": app.executable_name,
+                # 兼容旧版读取：name 仍是“用于展示的名称”（有自定义名用自定义名）
+                "name": app.custom_name or os.path.splitext(app.executable_name or "")[0],
+                "exe_name": app.executable_name,
+                "custom_name": app.custom_name,
                 "executable_path": app.executable_path,
                 "launch_path": app.launch_path,
                 "is_watched": app.is_watched,
@@ -197,7 +200,8 @@ def _import_from_json(data: dict) -> None:
     try:
         for app_data in data.get("applications", []):
             exe_path = normalize_exe_path(app_data["executable_path"])
-            exe_name = app_data["name"]
+            # 新格式有 exe_name；旧格式只有 name（既是当时显示名也是 EXE 名）
+            exe_name = app_data.get("exe_name") or app_data.get("name") or "未知"
             launch_path = app_data.get("launch_path") or exe_path
 
             watched_app = add_or_get_watched_app(db, exe_path, exe_name)
@@ -209,6 +213,11 @@ def _import_from_json(data: dict) -> None:
             watched_app.is_process_path_different = app_data.get("is_process_path_different", False)
             watched_app.is_path_exist = app_data.get("is_path_exist", True)
             watched_app.launch_with_le = bool(app_data.get("launch_with_le", False))
+            # 自定义名称：新格式读 custom_name；旧格式把 name 当作自定义名
+            if "custom_name" in app_data:
+                watched_app.custom_name = (app_data.get("custom_name") or None)
+            elif "exe_name" not in app_data and app_data.get("name"):
+                watched_app.custom_name = app_data["name"]
 
             summary = db.query(AppUsageSummary).filter_by(application_id=watched_app.id).first()
             if summary:
@@ -356,7 +365,7 @@ def merge_import_json(filepath: str, dry_run: bool = False,
             if not exe_path:
                 continue
 
-            exe_name = app_data.get("name", "未知")
+            exe_name = app_data.get("exe_name") or app_data.get("name") or "未知"
 
             existing = db.query(WatchedApplication).filter(
                 WatchedApplication.executable_path == exe_path
@@ -382,6 +391,10 @@ def merge_import_json(filepath: str, dry_run: bool = False,
             app.is_process_path_different = app_data.get("is_process_path_different", False)
             app.is_path_exist = app_data.get("is_path_exist", True)
             app.launch_with_le = bool(app_data.get("launch_with_le", False))
+            if "custom_name" in app_data:
+                app.custom_name = (app_data.get("custom_name") or None)
+            elif "exe_name" not in app_data and app_data.get("name"):
+                app.custom_name = app_data["name"]
 
             summary = db.query(AppUsageSummary).filter_by(
                 application_id=app.id

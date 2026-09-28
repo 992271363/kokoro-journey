@@ -33,6 +33,9 @@ class WatchedApplication(Base):
     executable_name = Column(String, nullable=False)
     executable_path = Column(String, nullable=False, unique=True, index=True)
 
+    # 用户自定义名称；为 NULL 表示“未设置”，列表显示时回退到 executable_name
+    custom_name = Column(String, nullable=True)
+
     launch_path = Column(String, nullable=True)
     is_process_path_different = Column(Boolean, nullable=False, default=False)
     is_path_exist = Column(Boolean, nullable=False, default=True)

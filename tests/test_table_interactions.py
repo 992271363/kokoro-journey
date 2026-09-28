@@ -5,11 +5,13 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QTableWidget
 
 from db.repository import AppInfo
 from ui.table import AppTableManager, should_offer_le_launch
 from util.config import Settings
+
+_common.ensure_db()
 
 app = QApplication(sys.argv)
 settings = Settings()
@@ -40,23 +42,20 @@ table = QTableWidget()
 manager = AppTableManager(table, None, settings)
 
 apps = [make_app(r"c:\games\a.exe", with_le=False), make_app(r"c:\games\b.exe", with_le=True)]
-table.setRowCount(len(apps))
-for row, info in enumerate(apps):
-    item = QTableWidgetItem(Path(info.exe_name).stem)
-    item.setData(Qt.UserRole, info.exe_path)
-    table.setItem(row, 2, item)
-manager._last_apps = apps
+manager.refresh(apps)
+settings.set("tableDoubleClickAction", "launch")
 
 events = []
 manager.detail_requested.connect(lambda path: events.append(("detail", path)))
 manager.launch_requested.connect(lambda path, force: events.append(("launch", path, force)))
 
 model = table.model()
+name_col = manager.col_index("name")
 
 
 def dbl(row: int):
     events.clear()
-    manager._on_double_clicked(model.index(row, 2))
+    manager._on_double_clicked(model.index(row, name_col))
 
 
 # 默认：双击 = 启动游戏
@@ -84,7 +83,7 @@ check("第二行也能启动", events == [("launch", r"c:\games\b.exe", False)])
 empty_row = table.rowCount()
 table.setRowCount(empty_row + 1)
 events.clear()
-manager._on_double_clicked(model.index(empty_row, 2))
+manager._on_double_clicked(model.index(empty_row, name_col))
 check("空行不触发", events == [])
 
 # LE 一次性入口的显示条件：已勾选则不再提供

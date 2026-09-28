@@ -27,6 +27,7 @@ from ui.transfer import DataTransferDialog
 from ui.widgets import StyledSizeGrip, ChineseMenuLineEdit
 from ui.picker import PickOverlay, PickButton
 from ui.theme import get_system_theme
+from ui import table_columns as tc
 from util.search import make_search_keywords, matches_search_keywords
 from util import le
 from version import VERSION
@@ -485,6 +486,7 @@ class Mywindow(QMainWindow):
         self.table_manager.watch_toggled_requested.connect(self._on_watch_toggled)
         self.table_manager.hard_delete_requested.connect(self._on_hard_delete_requested)
         self.table_manager.table_width_hint.connect(self._adjust_window_width)
+        self.table_manager.columns_changed.connect(self._apply_table_search)
         self._apply_table_zoom_from_settings()
         # Ctrl+滚轮 缩放：焦点在主窗口内任意控件上都生效，弹窗打开时不触发
         self._zoom_wheel_accum = 0
@@ -1195,17 +1197,15 @@ class Mywindow(QMainWindow):
         if not hasattr(self, "search_edit"):
             return
         keywords = make_search_keywords(self.search_edit.text())
-        total = self.tableWidget.rowCount()
         matched = 0
-        for row in range(total):
+        for row in range(self.tableWidget.rowCount()):
+            path = self.table_manager.exe_path_at_row(row)
             if not keywords:
                 self.tableWidget.setRowHidden(row, False)
                 matched += 1
                 continue
-            values = []
-            for col in range(self.tableWidget.columnCount()):
-                item = self.tableWidget.item(row, col)
-                values.append(item.text() if item is not None else "")
+            app = self.table_manager._app_for_path(path)
+            values = tc.search_texts(app) if app is not None else []
             visible = matches_search_keywords(values, keywords)
             self.tableWidget.setRowHidden(row, not visible)
             if visible:

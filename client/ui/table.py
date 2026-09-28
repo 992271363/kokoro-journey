@@ -1,26 +1,45 @@
+from dataclasses import dataclass
 from pathlib import Path
 from PySide6.QtCore import Qt, Signal, QObject, QSize
-from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont, QPixmap, QIcon, QShortcut
+from PySide6.QtGui import QFontMetrics, QColor, QPainter, QPainterPath, QPen, QFont, QPixmap, QIcon, QShortcut, QAction
 from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMenu, QMessageBox, QStyledItemDelegate, QLineEdit, QApplication
 )
 
-from typing import List
+from typing import Dict, List, Optional
 from util.format import format_seconds_to_text
 from util.icon import get_exe_icon
 from db.repository import AppInfo, AppRepository
 from util.config import Settings
+from ui import table_columns as tc
 from ui.table_sort import SortableTableWidgetItem, SortController, NOT_RUNNING as _NOT_RUNNING
 
-_BASE_TOTAL_ROLE = Qt.UserRole + 100
-_IS_WATCHED_ROLE = Qt.UserRole + 200
-_IS_PATH_EXIST_ROLE = Qt.UserRole + 201
+
+@dataclass
+class RowState:
+    """一行的数据与实时状态。
+
+    不依赖任何单元格：列被隐藏/换序时，基准值与实时值都不会丢。
+    """
+    app: AppInfo
+    status_value: int = 0
+    status_text: str = "未运行"
+    base_focus: int = 0
+    base_lifetime: int = 0
+    session_focus: int = -1     # -1 = 未运行
+    session_lifetime: int = -1
+    running: bool = False
+    focused: bool = False
 
 
 def should_offer_le_launch(launch_with_le: bool) -> bool:
     """已勾选“用 Locale Emulator 启动”的应用，不再单独提供一次性 LE 入口。"""
     return not bool(launch_with_le)
+
+# 每个单元格都记录所属行的 exe_path：排序/换序后单元格随行移动，
+# 行身份始终按“视觉行”解析，避免用数据下标写错行。
+EXE_PATH_ROLE = Qt.UserRole + 510
 
 _LIGHT_STATUS_COLORS = {
     "path_missing": "#ef4444",
@@ -51,6 +70,11 @@ class StyledHeaderView(QHeaderView):
         self._drag_logical = -1
         self._arrow_color = QColor(0x47, 0x55, 0x69)
         self._divider_color = QColor(0x94, 0xa3, 0xb8)
+        self._name_col = 2       # 名称列位置（随列配置变化，由表格更新）
+
+    def set_name_column(self, index: int):
+        self._name_col = index
+        self.viewport().update()
 
     def set_dark_mode(self, is_dark: bool):
         if is_dark:
@@ -71,7 +95,7 @@ class StyledHeaderView(QHeaderView):
     def paintSection(self, painter, rect, logicalIndex):
         super().paintSection(painter, rect, logicalIndex)
 
-        if logicalIndex == 2:
+        if logicalIndex == self._name_col:
             painter.save()
             painter.setPen(QPen(self._divider_color, 2))
             painter.drawLine(rect.right(), rect.top() + 4, rect.right(), rect.bottom() - 4)
@@ -134,6 +158,7 @@ class AppTableManager(QObject):
     watch_toggled_requested = Signal(str, bool)
     hard_delete_requested = Signal(str, str)
     table_width_hint = Signal(int)
+    columns_changed = Signal()            # 列显隐/顺序变化后发出（供搜索等重新应用）
 
     def __init__(self, table_widget: QTableWidget, parent=None, settings: Settings = None):
         super().__init__(parent)
@@ -142,6 +167,9 @@ class AppTableManager(QObject):
         self._zoom_factor = 1.0
         self._base_font = QFont(self.table.font())
         self._last_apps: List[AppInfo] = []
+        self._rows: Dict[str, RowState] = {}     # exe_path -> RowState
+        self._row_paths: List[str] = []          # 行顺序（行号 -> exe_path）
+        self._group_names: Dict[int, str] = {}   # 分组 id -> 名称
         self._is_dark = False
         self._status_colors = dict(_LIGHT_STATUS_COLORS)
         self._header = None
@@ -151,8 +179,15 @@ class AppTableManager(QObject):
         self._rename_original = ""
         self._restore_edit_triggers = QAbstractItemView.EditTrigger.NoEditTriggers
         self._rename_editor_widget = None
+        self._building_columns = False
+
+        # 列偏好（含旧的“按列号”偏好一次性迁移）
+        tc.migrate_legacy_prefs(self._settings)
+        self._order_ids = tc.load_order(self._settings)
+        self._visible_ids = tc.load_visible(self._settings, self._order_ids)
+
         self._setup_table()
-        self._sort = SortController(self.table, self._settings)
+        self._sort = SortController(self.table, self, self._settings)
 
     def set_dark_mode(self, is_dark: bool):
         self._is_dark = is_dark
@@ -163,14 +198,17 @@ class AppTableManager(QObject):
         self.reassert_zoom()
 
     def _repaint_status_icons(self):
+        col = self.col_index("status")
+        if col < 0:
+            return
         for row in range(self.table.rowCount()):
-            status_item = self.table.item(row, 0)
-            if status_item is None:
+            item = self.table.item(row, col)
+            if item is None:
                 continue
-            value = status_item.data(Qt.UserRole)
+            value = item.data(Qt.UserRole)
             key = _STATUS_VALUE_TO_KEY.get(value)
             if key and key in self._status_colors:
-                status_item.setIcon(self._create_status_icon(self._status_colors[key]))
+                item.setIcon(self._create_status_icon(self._status_colors[key]))
 
     def apply_zoom(self, factor: float):
         factor = max(0.5, min(2.5, factor))
@@ -179,7 +217,10 @@ class AppTableManager(QObject):
         self._apply_zoom_style()
 
         if self._last_apps:
-            self.refresh(self._last_apps, skip_width_hint=True)
+            # 只重绘单元格，保留 _rows 中的实时会话状态；随后恢复排序与列宽
+            self._render_rows()
+            self._adjust_name_column_width()
+            self._sort.resync()
 
     def _apply_zoom_style(self):
         font = QFont(self._base_font)
@@ -199,51 +240,217 @@ class AppTableManager(QObject):
         icon_sz = min(icon_sz, row_h - 4)
         self.table.setIconSize(QSize(icon_sz, icon_sz))
 
-        self.table.setColumnWidth(2, max(50, int(round(250 * factor))))
+        name_col = self.col_index("name")
+        if name_col >= 0:
+            self.table.setColumnWidth(name_col, max(50, int(round(250 * factor))))
 
     def reassert_zoom(self):
         self._apply_zoom_style()
         self._adjust_name_column_width()
 
     def _setup_table(self):
-        columns = ["", "", "应用名称", "本次焦点", "本次运行", "最后一次启动", "首次启动", "总焦点时长", "总运行时长"]
-        self.table.setColumnCount(len(columns))
-
         header = StyledHeaderView(Qt.Horizontal, self.table)
         self._header = header
         self.table.setHorizontalHeader(header)
-        self.table.setHorizontalHeaderLabels(columns)
-        status_header = self.table.horizontalHeaderItem(0)
-        if status_header is not None:
-            status_header.setToolTip("状态：未运行 / 未监视 / 路径不存在")
         header.setSectionsClickable(True)
         header.setSortIndicatorShown(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Interactive)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+        header.setSectionsMovable(True)
+        header.setDragEnabled(True)
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._on_header_menu)
+        header.sectionMoved.connect(self._on_section_moved)
 
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.doubleClicked.connect(self._on_double_clicked)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
-        self.table.setColumnWidth(2, 250)
         self.table.setAlternatingRowColors(True)
         self.table.setIconSize(QSize(20, 20))
 
-        header.setSectionsMovable(True)
-        header.setDragEnabled(True)
-        header.sectionMoved.connect(self._save_column_order)
-        self._restore_column_order()
-        self.table.setItemDelegateForColumn(2, _NameEditorDelegate(self.table))
         f2_shortcut = QShortcut(Qt.Key_F2, self.table)
         f2_shortcut.activated.connect(self._on_f2_press)
+
+        self._apply_columns_config()
+
+    # ---------- 列（按稳定 ID） ----------
+
+    @property
+    def visible_ids(self) -> List[str]:
+        return list(self._visible_ids)
+
+    @property
+    def order_ids(self) -> List[str]:
+        return list(self._order_ids)
+
+    def col_index(self, cid: Optional[str]) -> int:
+        """稳定 ID → 当前表格列号（不可见返回 -1）。"""
+        if not cid:
+            return -1
+        try:
+            return self._visible_ids.index(cid)
+        except ValueError:
+            return -1
+
+    def col_id(self, index: int) -> Optional[str]:
+        if 0 <= index < len(self._visible_ids):
+            return self._visible_ids[index]
+        return None
+
+    def row_paths(self) -> List[str]:
+        return list(self._row_paths)
+
+    def _apply_columns_config(self):
+        """按当前 order/visible 重建列，并重绘所有行。"""
+        self._building_columns = True
+        self.table.setSortingEnabled(False)
+        cols = list(self._visible_ids)
+        self.table.clear()
+        self.table.setColumnCount(len(cols))
+        self.table.setHorizontalHeaderLabels([tc.COLUMNS[cid].header_text() for cid in cols])
+
+        header = self.table.horizontalHeader()
+        mode_map = {
+            "interactive": QHeaderView.Interactive,
+            "fixed": QHeaderView.Fixed,
+            "contents": QHeaderView.ResizeToContents,
+        }
+        for c, cid in enumerate(cols):
+            spec = tc.COLUMNS[cid]
+            header.setSectionResizeMode(c, mode_map.get(spec.resize, QHeaderView.ResizeToContents))
+            self.table.setColumnWidth(c, spec.width)
+
+        # 名称列分隔线 + 内联编辑委托
+        name_col = self.col_index("name")
+        if self._header is not None:
+            self._header.set_name_column(name_col)
+        self._name_delegate = _NameEditorDelegate(self.table)
+        if name_col >= 0:
+            self.table.setItemDelegateForColumn(name_col, self._name_delegate)
+
+        status_col = self.col_index("status")
+        if status_col >= 0:
+            item = self.table.horizontalHeaderItem(status_col)
+            if item is not None:
+                item.setToolTip("状态：未运行 / 未监视 / 路径不存在")
+
+        self._building_columns = False
+        self._render_rows()
+        if self.col_index("name") >= 0:
+            self._adjust_name_column_width()
+
+    def set_column_visible(self, cid: str, visible: bool):
+        if not tc.is_known(cid):
+            return
+        if visible and cid not in self._visible_ids:
+            # 按 order 的位置插入，而不是追加到末尾，保证列序稳定
+            self._visible_ids = tc.sanitize_visible(self._visible_ids + [cid], self._order_ids)
+        elif not visible and cid in self._visible_ids:
+            self._visible_ids.remove(cid)
+            if cid == self._sort_id():
+                self._clear_sort()
+        else:
+            return
+        self._persist_columns()
+        self._apply_columns_config()
+        self._sort.resync()
+        self.columns_changed.emit()
+
+    def set_columns(self, order_ids, visible_ids):
+        self._order_ids = tc.sanitize_order(order_ids)
+        self._visible_ids = tc.sanitize_visible(visible_ids, self._order_ids)
+        if self._sort_id() and self._sort_id() not in self._visible_ids:
+            self._clear_sort()
+        self._persist_columns()
+        self._apply_columns_config()
+        self._sort.resync()
+        self.columns_changed.emit()
+
+    def reset_columns(self):
+        self.set_columns(tc.DEFAULT_ORDER, tc.DEFAULT_VISIBLE)
+
+    def _persist_columns(self):
+        if self._settings is None:
+            return
+        self._settings.set(tc.SETTING_ORDER, self._order_ids)
+        self._settings.set(tc.SETTING_VISIBLE, self._visible_ids)
+
+    def _sort_id(self) -> Optional[str]:
+        return self._settings.get(tc.SETTING_SORT_ID) if self._settings is not None else None
+
+    def _clear_sort(self):
+        if self._settings is not None:
+            self._settings.set(tc.SETTING_SORT_ID, None)
+            self._settings.set(tc.SETTING_SORT_ORDER, None)
+
+    def sort_by_id(self, cid: str, order):
+        self._sort.sort_by_id(cid, order)
+
+    def _on_section_moved(self, logical, old_visual, new_visual):
+        """表头拖拽调序：把视觉顺序换算回 ID 顺序并保存（不重建列）。"""
+        if self._building_columns:
+            return
+        header = self.table.horizontalHeader()
+        cols = list(self._visible_ids)
+        try:
+            new_visible = [cols[header.logicalIndex(v)] for v in range(header.count())]
+        except (IndexError, KeyError):
+            return
+        visible_set = set(cols)
+        it = iter(new_visible)
+        self._order_ids = [next(it) if cid in visible_set else cid for cid in self._order_ids]
+        self._visible_ids = tc.sanitize_visible(self._visible_ids, self._order_ids)
+        self._persist_columns()
+
+    # ---------- 表头右键（即时生效） ----------
+
+    def _on_header_menu(self, pos):
+        header = self.table.horizontalHeader()
+        logical = header.logicalIndexAt(pos)
+        cid = self.col_id(logical) if logical >= 0 else None
+
+        menu = QMenu(self.table)
+        menu.addAction("显示的列").setEnabled(False)
+        for column_id in self._order_ids:
+            spec = tc.COLUMNS[column_id]
+            act = QAction(spec.title + ("（预留）" if spec.reserved else ""), menu)
+            act.setCheckable(True)
+            act.setChecked(column_id in self._visible_ids)
+            act.toggled.connect(
+                lambda on, c=column_id: self.set_column_visible(c, on))
+            menu.addAction(act)
+
+        if cid is not None:
+            spec = tc.COLUMNS[cid]
+            menu.addSeparator()
+            if not spec.sortable:
+                # 不可排序列：先按“显示但禁用”呈现（最终规则后续再定）
+                act = QAction(f"按「{spec.title}」排序（不可用）", menu)
+                act.setEnabled(False)
+                act.setToolTip("该列没有可比较的取值")
+                menu.addAction(act)
+            else:
+                act_asc = QAction(f"按「{spec.title}」升序", menu)
+                act_desc = QAction(f"按「{spec.title}」降序", menu)
+                act_asc.triggered.connect(
+                    lambda _c=False, c=cid: self.sort_by_id(c, Qt.AscendingOrder))
+                act_desc.triggered.connect(
+                    lambda _c=False, c=cid: self.sort_by_id(c, Qt.DescendingOrder))
+                menu.addAction(act_asc)
+                menu.addAction(act_desc)
+
+        menu.addSeparator()
+        act_more = QAction("更多…（选择列）", menu)
+        act_more.triggered.connect(self.open_choose_columns)
+        menu.addAction(act_more)
+        menu.exec(header.mapToGlobal(pos))
+
+    def open_choose_columns(self):
+        from ui.table_columns_dialog import ChooseColumnsDialog
+        dialog = ChooseColumnsDialog(self.table, self._order_ids, self._visible_ids)
+        if dialog.exec() == dialog.Accepted:
+            order, visible = dialog.result_state()
+            self.set_columns(order, visible)
 
     def _create_status_icon(self, color_hex: str) -> QIcon:
         canvas = max(self.table.iconSize().width(), 8)
@@ -268,213 +475,275 @@ class AppTableManager(QObject):
             self._emit_table_width_hint()
 
     def _set_data(self, apps: List[AppInfo], preserve_sort: bool = False):
-        self._last_apps = apps
+        self._last_apps = list(apps)
+        self._group_names = {gid: name for gid, name, _c in AppRepository.get_all_groups()}
         self.table.setUpdatesEnabled(False)
         self._sort.begin_refresh()
         captured = self._sort.capture_order() if preserve_sort else None
-        self.table.setRowCount(0)
-        for app in apps:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
 
-            # 状态列：根据 is_watched / is_path_exist 决定颜色
-            if not app.is_path_exist:
-                status_color = self._status_colors["path_missing"]
-                status_text = "路径不存在"
-                status_value = -2
-            elif not app.is_watched:
-                status_color = self._status_colors["not_watched"]
-                status_text = "未监视"
-                status_value = -1
-            else:
-                status_color = self._status_colors["not_running"]
-                status_text = "未运行"
-                status_value = 0
-
-            status_item = SortableTableWidgetItem("")
-            status_item.setData(Qt.UserRole, status_value)
-            status_item.setIcon(self._create_status_icon(status_color))
-            status_item.setToolTip(status_text)
-            self.table.setItem(row, 0, status_item)
-
-            # 图标列
-            icon_item = SortableTableWidgetItem("")
-            icon_item.setIcon(get_exe_icon(app.exe_path))
-            self.table.setItem(row, 1, icon_item)
-
-            name_item = SortableTableWidgetItem(Path(app.exe_name).stem)
-            name_item.setData(Qt.UserRole, app.exe_path)
-            name_item.setData(_IS_WATCHED_ROLE, app.is_watched)
-            name_item.setData(_IS_PATH_EXIST_ROLE, app.is_path_exist)
-            # 显示颜色标记
-            if app.color_tags:
-                dots = " ".join(f'<span style="color:{c};">●</span>' for c in app.color_tags)
-                name_item.setText(f"{Path(app.exe_name).stem}  {dots}")
-            self.table.setItem(row, 2, name_item)
-
-            item_cur_focus = SortableTableWidgetItem("")
-            item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-            self.table.setItem(row, 3, item_cur_focus)
-
-            item_cur_run = SortableTableWidgetItem("")
-            item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-            self.table.setItem(row, 4, item_cur_run)
-
-            item_last_start = SortableTableWidgetItem(app.last_start_at)
-            item_last_start.setData(Qt.UserRole, app.last_start_at_ts or 0)
-            self.table.setItem(row, 5, item_last_start)
-
-            item_first_seen = SortableTableWidgetItem(app.first_seen_at)
-            item_first_seen.setData(Qt.UserRole, app.first_seen_at_ts or 0)
-            self.table.setItem(row, 6, item_first_seen)
-
-            item_focus = SortableTableWidgetItem(format_seconds_to_text(app.total_focus_seconds))
-            item_focus.setData(Qt.UserRole, app.total_focus_seconds)
-            item_focus.setData(_BASE_TOTAL_ROLE, app.total_focus_seconds)
-            self.table.setItem(row, 7, item_focus)
-
-            item_life = SortableTableWidgetItem(format_seconds_to_text(app.total_lifetime_seconds))
-            item_life.setData(Qt.UserRole, app.total_lifetime_seconds)
-            item_life.setData(_BASE_TOTAL_ROLE, app.total_lifetime_seconds)
-            self.table.setItem(row, 8, item_life)
-
+        self._rows = {}
+        for app in self._last_apps:
+            st = RowState(
+                app=app,
+                base_focus=int(app.total_focus_seconds or 0),
+                base_lifetime=int(app.total_lifetime_seconds or 0),
+            )
+            self._reset_row_status(st)
+            self._rows[app.exe_path] = st
+        self._render_rows()
         self._sort.apply_after_refresh(preserve_sort, captured)
         self.table.setUpdatesEnabled(True)
 
+    # ---------- 行渲染（全部按稳定 ID） ----------
+
+    def _render_rows(self):
+        self.table.setRowCount(0)
+        self._row_paths = []
+        for app in self._last_apps:
+            st = self._rows.get(app.exe_path)
+            if st is None:
+                continue
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self._row_paths.append(app.exe_path)
+            for col, cid in enumerate(self._visible_ids):
+                item = self._render_cell(cid, st)
+                item.setData(EXE_PATH_ROLE, app.exe_path)
+                self.table.setItem(row, col, item)
+
+    @staticmethod
+    def _reset_row_status(st: RowState):
+        """整表刷新时先按 is_watched / is_path_exist 给出初始状态。"""
+        if not st.app.is_path_exist:
+            st.status_value, st.status_text = -2, "路径不存在"
+        elif not st.app.is_watched:
+            st.status_value, st.status_text = -1, "未监视"
+        else:
+            st.status_value, st.status_text = 0, "未运行"
+        st.running = False
+        st.focused = False
+        st.session_focus = _NOT_RUNNING
+        st.session_lifetime = _NOT_RUNNING
+
+    @staticmethod
+    def _live_total(st: RowState, kind: str) -> int:
+        if kind == "focus":
+            return st.base_focus + (max(0, st.session_focus) if st.running else 0)
+        return st.base_lifetime + (max(0, st.session_lifetime) if st.running else 0)
+
+    def _render_cell(self, cid: str, st: RowState) -> QTableWidgetItem:
+        app = st.app
+        spec = tc.COLUMNS[cid]
+
+        if cid == "status":
+            key = _STATUS_VALUE_TO_KEY.get(st.status_value, "not_running")
+            item = SortableTableWidgetItem("")
+            item.setData(Qt.UserRole, st.status_value)
+            item.setIcon(self._create_status_icon(
+                self._status_colors.get(key, self._status_colors["not_running"])))
+            item.setToolTip(st.status_text)
+            return item
+
+        if cid == "icon":
+            item = SortableTableWidgetItem("")
+            item.setIcon(get_exe_icon(app.exe_path))
+            return item
+
+        if cid == "name":
+            text = tc.display_name(app)
+            if app.color_tags:
+                dots = " ".join(f'<span style="color:{c};">●</span>' for c in app.color_tags)
+                text = f"{text}  {dots}"
+            item = SortableTableWidgetItem(text)
+            item.setData(Qt.UserRole, app.exe_path)
+            return item
+
+        if cid == "exe_name":
+            item = SortableTableWidgetItem(app.exe_name or "")
+            item.setData(Qt.UserRole, (app.exe_name or "").lower())
+            return item
+
+        if cid == "exe_path":
+            item = SortableTableWidgetItem(app.exe_path or "")
+            item.setToolTip(app.exe_path or "")
+            return item
+
+        if cid == "launch_path":
+            item = SortableTableWidgetItem(app.launch_path or "—")
+            item.setToolTip(app.launch_path or "")
+            return item
+
+        if cid == "launch_with_le":
+            item = SortableTableWidgetItem("是" if app.launch_with_le else "否")
+            item.setData(Qt.UserRole, int(bool(app.launch_with_le)))
+            return item
+
+        if cid == "is_watched":
+            item = SortableTableWidgetItem("是" if app.is_watched else "否")
+            item.setData(Qt.UserRole, int(bool(app.is_watched)))
+            return item
+
+        if cid == "groups":
+            names = "、".join(self._group_names.get(gid, "") for gid in (app.group_ids or []))
+            names = names.strip("、")
+            item = SortableTableWidgetItem(names or "—")
+            item.setData(Qt.UserRole, names)
+            return item
+
+        if cid == "focus_ratio":
+            life = self._live_total(st, "lifetime")
+            ratio = (self._live_total(st, "focus") / life) if life else 0
+            item = SortableTableWidgetItem(f"{ratio * 100:.0f}%")
+            item.setData(Qt.UserRole, round(ratio, 4))
+            return item
+
+        if cid == "session_focus":
+            na = st.session_focus == _NOT_RUNNING
+            item = SortableTableWidgetItem("" if na else format_seconds_to_text(st.session_focus))
+            item.setData(Qt.UserRole, _NOT_RUNNING if na else st.session_focus)
+            return item
+
+        if cid == "session_lifetime":
+            na = st.session_lifetime == _NOT_RUNNING
+            item = SortableTableWidgetItem("" if na else format_seconds_to_text(st.session_lifetime))
+            item.setData(Qt.UserRole, _NOT_RUNNING if na else st.session_lifetime)
+            return item
+
+        if cid == "last_started_at":
+            item = SortableTableWidgetItem(app.last_start_at)
+            item.setData(Qt.UserRole, app.last_start_at_ts or 0)
+            return item
+
+        if cid == "first_seen_at":
+            item = SortableTableWidgetItem(app.first_seen_at)
+            item.setData(Qt.UserRole, app.first_seen_at_ts or 0)
+            return item
+
+        if cid == "last_ended_at":
+            item = SortableTableWidgetItem(app.last_ended_at or "—")
+            item.setData(Qt.UserRole, app.last_ended_at_ts or 0)
+            return item
+
+        if cid == "total_focus":
+            value = self._live_total(st, "focus")
+            item = SortableTableWidgetItem(format_seconds_to_text(value))
+            item.setData(Qt.UserRole, value)
+            return item
+
+        if cid == "total_lifetime":
+            value = self._live_total(st, "lifetime")
+            item = SortableTableWidgetItem(format_seconds_to_text(value))
+            item.setData(Qt.UserRole, value)
+            return item
+
+        if spec.kind == "placeholder":
+            return SortableTableWidgetItem("—")
+        return SortableTableWidgetItem("")
+
+    def exe_path_at_row(self, row: int) -> str:
+        """当前视觉行的 exe_path（排序/拖拽换序后依旧准确）。"""
+        if row < 0 or row >= self.table.rowCount():
+            return ""
+        item = self.table.item(row, 0)
+        if item is not None:
+            path = item.data(EXE_PATH_ROLE)
+            if path:
+                return path
+        for col in range(1, self.table.columnCount()):
+            other = self.table.item(row, col)
+            if other is not None:
+                path = other.data(EXE_PATH_ROLE)
+                if path:
+                    return path
+        return ""
+
+    def _row_index(self, exe_path: str) -> int:
+        """exe_path → 当前视觉行号（找不到返回 -1）。"""
+        if not exe_path:
+            return -1
+        for row in range(self.table.rowCount()):
+            if self.exe_path_at_row(row) == exe_path:
+                return row
+        return -1
+
+    def _write_row(self, st: RowState, row: Optional[int] = None):
+        """把某行“会随运行变化”的列按 ID 写回；row 缺省时按行身份解析。"""
+        if row is None:
+            row = self._row_index(st.app.exe_path)
+        if row < 0:
+            return
+        for cid in ("status", "session_focus", "session_lifetime",
+                    "total_focus", "total_lifetime", "focus_ratio"):
+            col = self.col_index(cid)
+            if col < 0:
+                continue
+            item = self._render_cell(cid, st)
+            item.setData(EXE_PATH_ROLE, st.app.exe_path)
+            self.table.setItem(row, col, item)
+
     def update_status(self, status_data: dict):
         self.table.setUpdatesEnabled(False)
-        self.table.setSortingEnabled(False)
         for row in range(self.table.rowCount()):
-            exe_name_item = self.table.item(row, 2)
-            if not exe_name_item:
+            exe_path = self.exe_path_at_row(row)
+            st = self._rows.get(exe_path)
+            if st is None:
+                continue
+            app = st.app
+            if not app.is_path_exist:
+                st.status_value, st.status_text = -2, "路径不存在"
+                st.running = False
+                st.focused = False
+                st.session_focus = _NOT_RUNNING
+                st.session_lifetime = _NOT_RUNNING
+                self._write_row(st, row)
+                continue
+            if not app.is_watched:
+                st.status_value, st.status_text = -1, "未监视"
+                st.running = False
+                st.focused = False
+                st.session_focus = _NOT_RUNNING
+                st.session_lifetime = _NOT_RUNNING
+                self._write_row(st, row)
                 continue
 
-            is_path_exist = exe_name_item.data(_IS_PATH_EXIST_ROLE)
-            is_watched = exe_name_item.data(_IS_WATCHED_ROLE)
-
-            # 路径不存在：保持红色，跳过
-            if is_path_exist is False:
-                status_item = self.table.item(row, 0)
-                if status_item:
-                    status_item.setIcon(self._create_status_icon(self._status_colors["path_missing"]))
-                    status_item.setToolTip("路径不存在")
-                continue
-
-            # 未监视：保持深灰，跳过
-            if is_watched is False:
-                status_item = self.table.item(row, 0)
-                if status_item:
-                    status_item.setData(Qt.UserRole, -1)
-                    status_item.setIcon(self._create_status_icon(self._status_colors["not_watched"]))
-                    status_item.setToolTip("未监视")
-                item_cur_focus = SortableTableWidgetItem("")
-                item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 3, item_cur_focus)
-                item_cur_run = SortableTableWidgetItem("")
-                item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 4, item_cur_run)
-                continue
-
-            exe_path = exe_name_item.data(Qt.UserRole)
-
-            item_total_focus = self.table.item(row, 7)
-            item_total_life = self.table.item(row, 8)
-            if not item_total_focus or not item_total_life:
-                continue
-
-            base_focus = item_total_focus.data(_BASE_TOTAL_ROLE)
-            base_life = item_total_life.data(_BASE_TOTAL_ROLE)
-
-            if base_focus is None:
-                base_focus = item_total_focus.data(Qt.UserRole) or 0
-            if base_life is None:
-                base_life = item_total_life.data(Qt.UserRole) or 0
-
-            if exe_path in status_data:
-                data = status_data[exe_path]
-                status_color = self._status_colors["focused"] if data['is_focused'] else self._status_colors["running"]
-                status_val = 2 if data['is_focused'] else 1
-
-                status_item = self.table.item(row, 0)
-                if status_item:
-                    status_item.setData(Qt.UserRole, status_val)
-                    status_item.setIcon(self._create_status_icon(status_color))
-
-                item_cur_focus = SortableTableWidgetItem(format_seconds_to_text(data['focus']))
-                item_cur_focus.setData(Qt.UserRole, data['focus'])
-                self.table.setItem(row, 3, item_cur_focus)
-
-                item_cur_run = SortableTableWidgetItem(format_seconds_to_text(data['runtime_seconds']))
-                item_cur_run.setData(Qt.UserRole, data['runtime_seconds'])
-                self.table.setItem(row, 4, item_cur_run)
-
-                current_total_focus = base_focus + data['focus']
-                item_total_focus.setText(format_seconds_to_text(current_total_focus))
-                item_total_focus.setData(Qt.UserRole, current_total_focus)
-
-                current_total_life = base_life + data['runtime_seconds']
-                item_total_life.setText(format_seconds_to_text(current_total_life))
-                item_total_life.setData(Qt.UserRole, current_total_life)
+            data = status_data.get(app.exe_path)
+            if data:
+                st.running = True
+                st.focused = bool(data.get("is_focused"))
+                st.session_focus = int(data.get("focus", 0))
+                st.session_lifetime = int(data.get("runtime_seconds", 0))
+                st.status_value = 2 if st.focused else 1
+                st.status_text = "已聚焦" if st.focused else "运行中"
+            elif st.running:
+                # 刚结束：把本次并入基准（下一次整表刷新会用库里的权威值覆盖）
+                st.base_focus += max(0, st.session_focus)
+                st.base_lifetime += max(0, st.session_lifetime)
+                st.running = False
+                st.focused = False
+                st.session_focus = _NOT_RUNNING
+                st.session_lifetime = _NOT_RUNNING
+                st.status_value, st.status_text = 0, "未运行"
             else:
-                status_item = self.table.item(row, 0)
-                if status_item and status_item.data(Qt.UserRole) > 0:
-                    final_focus = item_total_focus.data(Qt.UserRole)
-                    final_life = item_total_life.data(Qt.UserRole)
-
-                    if final_focus is not None:
-                        item_total_focus.setData(_BASE_TOTAL_ROLE, final_focus)
-                    if final_life is not None:
-                        item_total_life.setData(_BASE_TOTAL_ROLE, final_life)
-
-                    status_item.setData(Qt.UserRole, 0)
-                    status_item.setIcon(self._create_status_icon(self._status_colors["not_running"]))
-
-                    item_cur_focus = SortableTableWidgetItem("")
-                    item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-                    self.table.setItem(row, 3, item_cur_focus)
-
-                    item_cur_run = SortableTableWidgetItem("")
-                    item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-                    self.table.setItem(row, 4, item_cur_run)
-
-                    final_focus = item_total_focus.data(_BASE_TOTAL_ROLE) or base_focus
-                    final_life = item_total_life.data(_BASE_TOTAL_ROLE) or base_life
-
-                    item_total_focus.setText(format_seconds_to_text(final_focus))
-                    item_total_life.setText(format_seconds_to_text(final_life))
-                    item_total_focus.setData(Qt.UserRole, final_focus)
-                    item_total_life.setData(Qt.UserRole, final_life)
+                continue
+            self._write_row(st, row)
         self._sort.apply_after_status_update()
         self.table.setUpdatesEnabled(True)
 
     def set_row_watched_state(self, exe_path: str, watched: bool):
         """只更新指定行的监视状态，不重建整张表。"""
-        for row in range(self.table.rowCount()):
-            name_item = self.table.item(row, 2)
-            if not name_item or name_item.data(Qt.UserRole) != exe_path:
-                continue
-
-            name_item.setData(_IS_WATCHED_ROLE, watched)
-
-            if not watched:
-                status_item = self.table.item(row, 0)
-                if status_item:
-                    status_item.setData(Qt.UserRole, -1)
-                    status_item.setIcon(self._create_status_icon(self._status_colors["not_watched"]))
-                    status_item.setToolTip("未监视")
-                item_cur_focus = SortableTableWidgetItem("")
-                item_cur_focus.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 3, item_cur_focus)
-                item_cur_run = SortableTableWidgetItem("")
-                item_cur_run.setData(Qt.UserRole, _NOT_RUNNING)
-                self.table.setItem(row, 4, item_cur_run)
-            else:
-                status_item = self.table.item(row, 0)
-                if status_item:
-                    status_item.setData(Qt.UserRole, 0)
-                    status_item.setIcon(self._create_status_icon(self._status_colors["not_running"]))
-                    status_item.setToolTip("未运行")
-            break
+        st = self._rows.get(exe_path)
+        if st is None:
+            return
+        st.app.is_watched = watched
+        if not watched:
+            st.status_value, st.status_text = -1, "未监视"
+            st.running = False
+            st.focused = False
+            st.session_focus = _NOT_RUNNING
+            st.session_lifetime = _NOT_RUNNING
+        else:
+            st.status_value, st.status_text = 0, "未运行"
+        self._write_row(st)
 
     def _on_double_clicked(self, index):
         if self._editing_rename:
@@ -496,13 +765,15 @@ class AppTableManager(QObject):
         if row < 0:
             return
 
-        name_item = self.table.item(row, 2)
-        if not name_item:
+        exe_path = self._get_exe_path_by_row(row)
+        if not exe_path:
+            return
+        app_info = self._app_for_path(exe_path)
+        if app_info is None:
             return
 
-        exe_name = name_item.text()
-        exe_path = name_item.data(Qt.UserRole)
-        is_watched = bool(name_item.data(_IS_WATCHED_ROLE))
+        exe_name = app_info.exe_name
+        is_watched = bool(app_info.is_watched)
 
         menu = QMenu()
         detail_action = menu.addAction("查看详细信息")
@@ -572,8 +843,7 @@ class AppTableManager(QObject):
         if action == detail_action:
             self.detail_requested.emit(exe_path)
         elif action == rename_action:
-            base_name = Path(exe_name).stem if Path(exe_name).suffix else exe_name
-            self._start_inline_rename(row, exe_path, base_name)
+            self._start_inline_rename(row, exe_path, self._display_name_of(exe_path))
         elif action == launch_action:
             self.launch_requested.emit(exe_path, False)
         elif le_launch_action is not None and action == le_launch_action:
@@ -607,17 +877,28 @@ class AppTableManager(QObject):
         row = self.table.currentRow()
         if row < 0:
             return
-        name_item = self.table.item(row, 2)
-        if not name_item:
+        name_col = self.col_index("name")
+        if name_col < 0:
             return
-        exe_path = name_item.data(Qt.UserRole)
-        raw_text = name_item.text()
-        base_name = Path(raw_text).stem if Path(raw_text).suffix else raw_text
-        self._start_inline_rename(row, exe_path, base_name)
+        exe_path = self._get_exe_path_by_row(row)
+        if not exe_path:
+            return
+        self._start_inline_rename(row, exe_path, self._display_name_of(exe_path))
+
+    def _display_name_of(self, exe_path: str) -> str:
+        """当前显示名（自定义名 ▸ 回退 EXE 名），用于重命名预填。"""
+        st = self._rows.get(exe_path)
+        if st is not None:
+            return tc.display_name(st.app)
+        app = self._app_for_path(exe_path)
+        return tc.display_name(app) if app is not None else ""
 
     def _start_inline_rename(self, row: int, exe_path: str, original_name: str):
         """临时切换 editTriggers 为 DoubleClicked，调用 editItem 弹出 Qt 原生编辑器。
         通过委托的 createEditor 创建无边框编辑器，通过 editingFinished 信号触发保存。"""
+        name_col = self.col_index("name")
+        if name_col < 0:
+            return
         self._editing_rename = True
         self._rename_row = row
         self._rename_exe_path = exe_path
@@ -626,8 +907,8 @@ class AppTableManager(QObject):
         self._restore_edit_triggers = self.table.editTriggers()
         self.table.setSortingEnabled(False)
         self.table.setEditTriggers(QAbstractItemView.DoubleClicked)
-        self.table.setCurrentCell(row, 2)
-        self.table.editItem(self.table.item(row, 2))
+        self.table.setCurrentCell(row, name_col)
+        self.table.editItem(self.table.item(row, name_col))
         self.table.setEditTriggers(self._restore_edit_triggers)
         app = QApplication.instance()
         if app:
@@ -665,6 +946,10 @@ class AppTableManager(QObject):
         ok = AppRepository.rename_app(self._rename_exe_path, new_name)
         if not ok:
             QMessageBox.warning(self.table, "提示", "名称保存失败，请重试。")
+        else:
+            st = self._rows.get(self._rename_exe_path)
+            if st is not None:
+                st.app.custom_name = new_name
         self._refresh_color_dots(self._rename_row, self._rename_exe_path)
         self.table.setSortingEnabled(True)
         self._rename_row = -1
@@ -678,7 +963,8 @@ class AppTableManager(QObject):
             return
         self._editing_rename = False
         self._restore_editor_keypress()
-        name_item = self.table.item(self._rename_row, 2)
+        name_col = self.col_index("name")
+        name_item = self.table.item(self._rename_row, name_col) if name_col >= 0 else None
         if name_item:
             name_item.setText(self._rename_original)
             self._refresh_color_dots(self._rename_row, self._rename_exe_path)
@@ -695,11 +981,15 @@ class AppTableManager(QObject):
             editor.keyPressEvent = editor._orig_keypress
 
     def _refresh_color_dots(self, row: int, exe_path: str):
-        """更新名称列的颜色圆点。"""
-        name_item = self.table.item(row, 2)
+        """更新名称列的颜色圆点（名称本身按“自定义名 ▸ EXE 名”口径重算）。"""
+        col = self.col_index("name")
+        if col < 0:
+            return
+        name_item = self.table.item(row, col)
         if not name_item:
             return
-        base_name = Path(name_item.text()).stem if Path(name_item.text()).suffix else name_item.text()
+        st = self._rows.get(exe_path)
+        base_name = tc.display_name(st.app) if st is not None else name_item.text()
         tags = AppRepository.get_color_tags(exe_path)
         if tags:
             dots = " ".join(f'<span style="color:{c};">●</span>' for c in tags)
@@ -730,12 +1020,12 @@ class AppTableManager(QObject):
         return second == QMessageBox.Yes
 
     def _get_exe_path_by_row(self, row: int) -> str:
-        item = self.table.item(row, 2)
-        if item:
-            return item.data(Qt.UserRole)
-        return ""
+        return self.exe_path_at_row(row)
 
     def _app_for_path(self, exe_path: str):
+        st = self._rows.get(exe_path)
+        if st is not None:
+            return st.app
         for app in self._last_apps:
             if app.exe_path == exe_path:
                 return app
@@ -745,13 +1035,15 @@ class AppTableManager(QObject):
         self._sort.unfreeze()
 
     def _adjust_name_column_width(self):
-        name_col = 2
+        name_col = self.col_index("name")
+        if name_col < 0:
+            return
 
         cell_fm = QFontMetrics(self.table.font())
         header_fm = QFontMetrics(self.table.horizontalHeader().font())
 
         header_item = self.table.horizontalHeaderItem(name_col)
-        header_text = header_item.text() if header_item else "应用名称"
+        header_text = header_item.text() if header_item else "名称"
 
         header_text_width = header_fm.horizontalAdvance(header_text)
         header_min_width = header_text_width + int(round(60 * self._zoom_factor))
@@ -777,24 +1069,6 @@ class AppTableManager(QObject):
         if self.table.verticalScrollBar().isVisible():
             total += self.table.verticalScrollBar().width()
         self.table_width_hint.emit(total + int(round(90 * self._zoom_factor)))
-
-    def _save_column_order(self):
-        if not self._settings:
-            return
-        header = self.table.horizontalHeader()
-        order = [header.logicalIndex(v) for v in range(header.count())]
-        self._settings.set("tableColumnOrder", order)
-
-    def _restore_column_order(self):
-        if not self._settings:
-            return
-        order = self._settings.get("tableColumnOrder")
-        if not order or len(order) != self.table.columnCount():
-            return
-        header = self.table.horizontalHeader()
-        for visual_idx, logical_idx in enumerate(order):
-            if 0 <= logical_idx < header.count():
-                header.moveSection(header.visualIndex(logical_idx), visual_idx)
 
 
 class _NameEditorDelegate(QStyledItemDelegate):
@@ -826,6 +1100,7 @@ class _NameEditorDelegate(QStyledItemDelegate):
     def setEditorData(self, editor, index):
         item = self._table.item(index.row(), index.column())
         raw = item.text()
+        raw = raw.split("  <span")[0]        # 去掉名称后的颜色圆点
         base = Path(raw).stem if Path(raw).suffix else raw
         editor.setText(base)
 

@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt, QObject, QCollator
 from PySide6.QtWidgets import QTableWidgetItem
 
 from util.config import Settings
+from ui import table_columns as tc
 
 collator = QCollator()
 collator.setCaseSensitivity(Qt.CaseInsensitive)
@@ -41,14 +42,20 @@ class SortableTableWidgetItem(QTableWidgetItem):
 
 
 class SortController(QObject):
-    """集中管理表格排序：方向、冻结(保持顺序)、覆盖键、偏好持久化、表头联动。"""
+    """集中管理表格排序：方向、冻结(保持顺序)、覆盖键、偏好持久化、表头联动。
 
-    def __init__(self, table, settings: Settings = None):
+    排序键与方向一律以**稳定列 ID** 记录（`tableSortId` / `tableSortOrder`）；
+    与表格列号解耦，列隐藏/换序都不会指错。
+    """
+
+    def __init__(self, table, manager, settings: Settings = None):
         super().__init__(table)
         self._table = table
+        self._manager = manager
         self._settings = settings
         self._preserved = False
-        self._preserve_col = 2
+        self._preserve_id = "name"
+        self._has_override = False
         self._wire_header()
 
     # ---- 表头联动 ----
@@ -65,42 +72,37 @@ class SortController(QObject):
 
     def capture_order(self):
         header = self._table.horizontalHeader()
-        col = header.sortIndicatorSection()
+        cid = self._manager.col_id(header.sortIndicatorSection())
         order = header.sortIndicatorOrder()
-        self._preserve_col = col
-        exe_order = []
-        for r in range(self._table.rowCount()):
-            ni = self._table.item(r, 2)
-            if ni:
-                exe_order.append(ni.data(Qt.UserRole))
-        return col, order, exe_order
+        if cid:
+            self._preserve_id = cid
+        return cid, order, list(self._manager.row_paths())
 
     def apply_after_refresh(self, preserve_sort: bool, captured):
-        if preserve_sort:
-            col, order, exe_order = captured
-            index = {exe: i for i, exe in enumerate(exe_order)}
-            for r in range(self._table.rowCount()):
-                ni = self._table.item(r, 2)
-                if not ni:
-                    continue
-                idx = index.get(ni.data(Qt.UserRole))
-                if idx is not None:
-                    si = self._table.item(r, col)
-                    if si:
-                        si.setData(ORDER_OVERRIDE_ROLE, idx)
-            SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
-            self._table.sortItems(col, order)
-            self._table.setSortingEnabled(False)
-            self._preserved = True
-        else:
-            self._preserved = False
-            self._clear_override_keys()
-            self._restore_sort()
+        if preserve_sort and captured and captured[0]:
+            cid, order, exe_order = captured
+            col = self._manager.col_index(cid)
+            if 0 <= col < self._table.columnCount():
+                index = {exe: i for i, exe in enumerate(exe_order)}
+                for r, path in enumerate(self._manager.row_paths()):
+                    idx = index.get(path)
+                    item = self._table.item(r, col)
+                    if item is not None and idx is not None:
+                        item.setData(ORDER_OVERRIDE_ROLE, idx)
+                SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
+                self._table.sortItems(col, order)
+                self._table.setSortingEnabled(False)
+                self._preserved = True
+                self._has_override = True
+                return
+        self._preserved = False
+        self._clear_override_keys()
+        self._restore_sort()
 
     def apply_after_status_update(self):
         if not self._preserved:
             self._clear_override_keys()
-            self._table.setSortingEnabled(True)
+            self._ensure_sorting_enabled()
 
     def unfreeze(self):
         if self._preserved:
@@ -111,52 +113,83 @@ class SortController(QObject):
     def preserved(self) -> bool:
         return self._preserved
 
+    def sort_by_id(self, cid: str, order):
+        """按稳定 ID 排序并写入偏好（列不可见/未知时忽略）。"""
+        col = self._manager.col_index(cid)
+        if col < 0:
+            return
+        if self._settings is not None:
+            self._settings.set(tc.SETTING_SORT_ID, cid)
+            self._settings.set(tc.SETTING_SORT_ORDER,
+                               "asc" if order == Qt.AscendingOrder else "desc")
+        SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
+        self._table.sortItems(col, order)
+        self._ensure_sorting_enabled()
+
     # ---- 内部 ----
     def _on_indicator_changed(self, column, order):
         SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
 
-    def _save_preference(self, column: int, order):
-        if not self._settings:
+    def _save_preference(self, column, order):
+        if not self._settings or getattr(self._manager, "_building_columns", False):
             return
-        self._settings.set("tableSortColumn", column)
-        self._settings.set("tableSortOrder", "asc" if order == Qt.AscendingOrder else "desc")
+        cid = self._manager.col_id(column)
+        if not cid:
+            return
+        self._settings.set(tc.SETTING_SORT_ID, cid)
+        self._settings.set(tc.SETTING_SORT_ORDER,
+                           "asc" if order == Qt.AscendingOrder else "desc")
+
+    def resync(self):
+        """对齐排序状态：清掉失效指示器，恢复保存的排序，并确保排序开启。
+
+        列显隐/换序/缩放后调用；幂等，可安全重复调用，不会在无变化时反复重排。
+        """
+        cid = self._settings.get(tc.SETTING_SORT_ID) if self._settings else None
+        order_str = self._settings.get(tc.SETTING_SORT_ORDER) if self._settings else None
+        col = self._manager.col_index(cid) if cid else -1
+        if col >= 0 and order_str in ("asc", "desc"):
+            order = Qt.AscendingOrder if order_str == "asc" else Qt.DescendingOrder
+            SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
+            self._table.sortItems(col, order)
+        else:
+            self._reset_indicator()
+        self._ensure_sorting_enabled()
 
     def _restore_sort(self):
-        if not self._settings:
+        self.resync()
+
+    def _ensure_sorting_enabled(self):
+        if not self._table.isSortingEnabled():
             self._table.setSortingEnabled(True)
-            return
-        col = self._settings.get("tableSortColumn")
-        order_str = self._settings.get("tableSortOrder")
-        if col is not None and order_str is not None:
-            try:
-                col = int(col)
-                # 列迁移：图标列插入后，旧排序列 >= 1 的索引 +1（仅一次）
-                if col >= 1 and not self._settings.get("_col_migrated"):
-                    col += 1
-                    self._settings.set("tableSortColumn", col)
-                    self._settings.set("_col_migrated", True)
-                if 0 <= col < self._table.columnCount():
-                    order = Qt.AscendingOrder if order_str == "asc" else Qt.DescendingOrder
-                    SortableTableWidgetItem._ascending = (order == Qt.AscendingOrder)
-                    self._table.sortItems(col, order)
-            except (TypeError, ValueError):
-                pass
-        self._table.setSortingEnabled(True)
+
+    def _reset_indicator(self):
+        """清掉排序指示器（排序列被隐藏/删除后，避免索引残留指向别的列）。"""
+        self._table.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)
 
     def _clear_override_keys(self):
+        if not self._has_override:
+            return
+        self._has_override = False
+        col = self._manager.col_index(self._preserve_id)
+        if col < 0:
+            return
         for r in range(self._table.rowCount()):
-            si = self._table.item(r, self._preserve_col)
-            if si:
-                si.setData(ORDER_OVERRIDE_ROLE, None)
+            item = self._table.item(r, col)
+            if item is not None:
+                item.setData(ORDER_OVERRIDE_ROLE, None)
 
     def _on_section_clicked(self, column):
+        cid = self._manager.col_id(column)
+        if not cid:
+            return
         if self._preserved:
             self._preserved = False
             self._clear_override_keys()
             hdr = self._table.horizontalHeader()
             if hdr.sortIndicatorSection() == column:
-                new_order = Qt.DescendingOrder if hdr.sortIndicatorOrder() == Qt.AscendingOrder else Qt.AscendingOrder
+                new_order = (Qt.DescendingOrder if hdr.sortIndicatorOrder() == Qt.AscendingOrder
+                             else Qt.AscendingOrder)
             else:
                 new_order = Qt.AscendingOrder
-            self._table.setSortingEnabled(True)
-            self._table.sortByColumn(column, new_order)
+            self.sort_by_id(cid, new_order)

@@ -165,22 +165,29 @@ class AppDetailDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+    def _display_name(self, app_data=None) -> str:
+        """列表/标题展示名：有自定义名用自定义名，否则回退 EXE 名。"""
+        data = app_data if app_data is not None else self.app_data
+        custom = (getattr(data, "custom_name", None) or "").strip()
+        if custom:
+            return custom
+        return os.path.splitext(data.executable_name or "")[0]
+
     def _refresh_display(self):
         try:
             app = AppRepository.get_app_by_path(self.app_data.executable_path)
             if app:
                 self.app_data = app
-                self._name_edit.setText(os.path.splitext(app.executable_name)[0])
+                self._name_edit.setText(self._display_name(app))
         except Exception:
             pass
         self._refresh_title()
 
     def _refresh_title(self):
-        name = os.path.splitext(self.app_data.executable_name)[0]
-        self.setWindowTitle(f"详细信息 - {name}")
+        self.setWindowTitle(f"详细信息 - {self._display_name()}")
 
     def _on_rename_app(self):
-        current = os.path.splitext(self.app_data.executable_name)[0]
+        current = self._display_name()
         new_name, ok = QInputDialog.getText(
             self, "修改应用名称", "新名称:", text=current
         )

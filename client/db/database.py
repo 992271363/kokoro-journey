@@ -91,6 +91,15 @@ def create_db_and_tables():
         except Exception:
             pass
 
+        # 应用：用户自定义名称（存量库补列；NULL 表示未设置）
+        try:
+            conn.execute(text(
+                "ALTER TABLE watched_applications ADD COLUMN custom_name VARCHAR"
+            ))
+            conn.commit()
+        except Exception:
+            pass
+
 
 def delete_database():
     if os.path.exists(db_path):
